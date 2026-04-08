@@ -1,0 +1,35 @@
+# Promtail — collecte des logs Docker vers Loki.
+# Lit les logs des containers via le socket Docker et les pousse vers Loki.
+
+server:
+  http_listen_port: 9080
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: docker
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+    relabel_configs:
+      # Utiliser le nom du container comme label.
+      - source_labels: ["__meta_docker_container_name"]
+        regex: "/(.*)"
+        target_label: container
+      # Utiliser le nom du service Compose comme label.
+      - source_labels: ["__meta_docker_container_label_com_docker_compose_service"]
+        target_label: service
+    pipeline_stages:
+      # Parser les logs JSON émis par Loguru.
+      - json:
+          expressions:
+            level: record.level.name
+            logger: record.name
+            message: text
+      - labels:
+          level:
+          logger:

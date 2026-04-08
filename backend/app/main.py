@@ -3,9 +3,11 @@
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
+import sentry_sdk
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
+from prometheus_fastapi_instrumentator import Instrumentator
 
 # Enregistrement des modèles ORM pour que SQLAlchemy connaisse le schéma complet.
 import app.jobs.models
@@ -17,6 +19,15 @@ from app.core.logging import setup_logging
 from app.core.redis import close_redis_pool
 from app.jobs.router import router as jobs_router
 from app.uploads.router import router as uploads_router
+
+# ── Sentry — alertes d'erreurs avec stack trace ────────────────
+if settings.SENTRY_DSN:
+    sentry_sdk.init(
+        dsn=settings.SENTRY_DSN,
+        environment=settings.APP_ENV,
+        traces_sample_rate=0.2 if settings.is_development else 0.05,
+        send_default_pii=False,
+    )
 
 
 @asynccontextmanager
@@ -56,6 +67,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ── Prometheus — métriques HTTP sur /metrics ───────────────────
+Instrumentator(
+    should_group_status_codes=True,
+    should_ignore_untemplated=True,
+    excluded_handlers=["/api/health", "/metrics"],
+).instrument(app).expose(app, endpoint="/metrics")
 
 
 app.include_router(uploads_router)

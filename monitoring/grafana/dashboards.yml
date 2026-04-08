@@ -1,0 +1,14 @@
+# Auto-provisioning des dashboards Grafana depuis le filesystem.
+
+apiVersion: 1
+
+providers:
+  - name: GEGM Upscaler
+    orgId: 1
+    folder: GEGM Upscaler
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

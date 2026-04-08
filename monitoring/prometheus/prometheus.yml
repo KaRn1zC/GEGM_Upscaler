@@ -1,0 +1,20 @@
+# Prometheus — scrape configuration.
+# Les targets pointent vers les services dans le réseau Docker Compose.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # Métriques FastAPI (via prometheus-fastapi-instrumentator).
+  - job_name: "gegm-api"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["host.docker.internal:8000"]
+        labels:
+          service: api
+
+  # Métriques Prometheus lui-même (santé interne).
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
