@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+
+# UV / Venv
+.venv/
+
+# Secrets — NEVER COMMIT
+.env
+.env.local
+.env.production
+.env.staging
+
+# IDE
+.vscode/settings.json
+.vscode/launch.json
+.idea/
+*.swp
+.DS_Store
+
+# Docker
+docker-compose.override.yml
+
+# Node / Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Tauri
+frontend/src-tauri/target/
+
+# Storage local (images dev)
+/data/
+/storage/
+
+# Monitoring data
+monitoring/grafana/data/
+monitoring/prometheus/data/
+monitoring/loki/data/
+
+# Tests
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Misc
+*.log
+*.bak
+*.tmp
