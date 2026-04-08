@@ -10,9 +10,12 @@ from loguru import logger
 # Enregistrement des modèles ORM pour que SQLAlchemy connaisse le schéma complet.
 import app.jobs.models
 import app.users.models
+from app.core.celery import celery_app  # noqa: F401 — accessible via app.main.celery_app
 from app.core.config import settings
 from app.core.database import engine
 from app.core.logging import setup_logging
+from app.jobs.router import router as jobs_router
+from app.uploads.router import router as uploads_router
 
 
 @asynccontextmanager
@@ -51,6 +54,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+app.include_router(uploads_router)
+app.include_router(jobs_router)
 
 
 @app.get("/api/health")
