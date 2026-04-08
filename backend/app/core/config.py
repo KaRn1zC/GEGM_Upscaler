@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     OIDC_CLIENT_SECRET: SecretStr = SecretStr("")
 
     # ── GPU Cloud ────────────────────────────────────────────────
+    UPSCALE_MODEL: Literal["drct-l", "hat-l"] = "drct-l"
     RUNPOD_API_KEY: SecretStr = SecretStr("")
     RUNPOD_ENDPOINT_ID: str = ""
 

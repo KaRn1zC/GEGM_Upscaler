@@ -7,7 +7,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
+# Enregistrement des modèles ORM pour que SQLAlchemy connaisse le schéma complet.
+import app.jobs.models
+import app.users.models
 from app.core.config import settings
+from app.core.database import engine
 from app.core.logging import setup_logging
 
 
@@ -22,6 +26,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         auth=settings.AUTH_BACKEND,
     )
     yield
+    await engine.dispose()
     logger.info("Shutting down GEGM Upscaler API")
 
 

@@ -30,7 +30,7 @@ class UpscaleParams:
     """
 
     scale_factor: int = 4
-    model_name: str = "realesrgan-x4"
+    model_name: str = "drct-l"
     output_format: str = "png"
 
 

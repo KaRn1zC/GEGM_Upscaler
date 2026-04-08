@@ -14,9 +14,13 @@ Example:
 
 from app.core.auth.interface import AuthBackend
 from app.core.config import settings
+from app.core.database import get_db
 from app.core.gpu.interface import GPUBackend
 from app.core.secrets.interface import SecretsBackend
 from app.core.storage.interface import StorageBackend
+
+# Ré-export pour que les routeurs importent tout depuis dependencies.
+__all__ = ["get_auth", "get_db", "get_gpu_cloud", "get_gpu_local", "get_secrets", "get_storage"]
 
 
 def get_storage() -> StorageBackend:
