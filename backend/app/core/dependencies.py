@@ -147,9 +147,13 @@ async def get_current_user(
 
 def get_gpu_local() -> GPUBackend:
     """Retourne le backend GPU local (Core ML) pour les images <= 5 MP."""
+    from pathlib import Path
+
     from app.core.gpu.local_coreml import CoreMLBackend
 
-    return CoreMLBackend()
+    model_dir = Path(settings.COREML_MODEL_DIR)
+    model_path = model_dir / f"{settings.UPSCALE_MODEL}.mlpackage"
+    return CoreMLBackend(model_path=str(model_path))
 
 
 def get_gpu_cloud() -> GPUBackend:
