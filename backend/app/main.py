@@ -14,6 +14,7 @@ from app.core.celery import celery_app  # noqa: F401 — accessible via app.main
 from app.core.config import settings
 from app.core.database import engine
 from app.core.logging import setup_logging
+from app.core.redis import close_redis_pool
 from app.jobs.router import router as jobs_router
 from app.uploads.router import router as uploads_router
 
@@ -29,6 +30,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         auth=settings.AUTH_BACKEND,
     )
     yield
+    await close_redis_pool()
     await engine.dispose()
     logger.info("Shutting down GEGM Upscaler API")
 
