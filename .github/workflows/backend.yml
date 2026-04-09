@@ -29,10 +29,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@v8
         with:
           version: "0.5.13"
           enable-cache: true
@@ -60,12 +60,13 @@ jobs:
             backend/tests/test_upscaling.py \
             backend/tests/test_pipeline.py \
             backend/tests/test_download.py \
+            backend/tests/test_new_backends.py \
             --cov=backend/app \
             --cov-report=term-missing \
             --cov-report=xml
 
       - name: Upload coverage
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: backend-coverage
