@@ -32,6 +32,8 @@ frontend/dist/
 
 # Tauri
 frontend/src-tauri/target/
+frontend/src-tauri/gen/
+frontend/src-tauri/Cargo.lock
 
 # Storage local (images dev)
 /data/

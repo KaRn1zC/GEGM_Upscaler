@@ -5,9 +5,10 @@ SSE de la progression en temps réel via Redis Pub/Sub.
 """
 
 import uuid
+from pathlib import Path
 
-from fastapi import APIRouter, Depends
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response, StreamingResponse
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -83,6 +84,68 @@ async def stream_progress(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.get("/api/jobs/{job_id}/download")
+async def download_job_result(
+    job_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    storage: StorageBackend = Depends(get_storage),
+    user: User = Depends(get_current_user),
+) -> Response:
+    """Télécharge le fichier résultat d'un job terminé avec succès.
+
+    Raises:
+        HTTPException: 404 si le job n'existe pas.
+        HTTPException: 409 si le job n'est pas encore complété.
+    """
+    job = await get_job(job_id, user, db)
+
+    if job.status != "completed" or job.output_key is None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Résultat indisponible — statut actuel : {job.status}",
+        )
+
+    try:
+        data = await storage.download(job.output_key)
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Fichier résultat introuvable : {job.output_key}",
+        ) from exc
+
+    filename = Path(job.output_key).name
+    media_type = _guess_media_type(filename)
+
+    return Response(
+        content=data,
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(len(data)),
+        },
+    )
+
+
+def _guess_media_type(filename: str) -> str:
+    """Devine le Content-Type à partir de l'extension du fichier.
+
+    Args:
+        filename: Nom du fichier avec extension.
+
+    Returns:
+        Type MIME correspondant (``image/png`` par défaut).
+    """
+    ext = Path(filename).suffix.lower()
+    return {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".webp": "image/webp",
+        ".tiff": "image/tiff",
+        ".tif": "image/tiff",
+    }.get(ext, "image/png")
 
 
 @router.delete("/api/jobs/{job_id}", status_code=204)
