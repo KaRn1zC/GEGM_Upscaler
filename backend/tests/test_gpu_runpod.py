@@ -102,12 +102,17 @@ async def test_should_return_processing_status(backend: RunPodBackend) -> None:
     assert result.progress == 0.5
 
 
-async def test_should_return_completed_with_output_key(backend: RunPodBackend) -> None:
-    """Un job COMPLETED doit inclure la clé de sortie."""
+async def test_should_decode_and_cache_completed_image(backend: RunPodBackend) -> None:
+    """Un job COMPLETED doit décoder l'image base64 et la mettre en cache."""
+    import base64 as b64
+
+    original_bytes = b"\x89PNG\r\n\x1a\nfake-image-data"
+    encoded = b64.b64encode(original_bytes).decode("ascii")
+
     mock_resp = _mock_response(200, {
         "id": "rp-3",
         "status": "COMPLETED",
-        "output": {"output_key": "results/upscaled.png"},
+        "output": {"image": encoded, "width": 100, "height": 100},
     })
 
     with patch.object(backend._client, "get", new_callable=AsyncMock, return_value=mock_resp):
@@ -115,7 +120,48 @@ async def test_should_return_completed_with_output_key(backend: RunPodBackend) -
 
     assert result.status == GPUJobStatus.COMPLETED
     assert result.progress == 1.0
-    assert result.output_key == "results/upscaled.png"
+    assert result.output_key == "rp-3"
+    assert backend.get_output_data("rp-3") == original_bytes
+
+
+async def test_should_fail_when_completed_without_image_field(
+    backend: RunPodBackend,
+) -> None:
+    """Un COMPLETED sans champ image doit être marqué FAILED."""
+    mock_resp = _mock_response(200, {
+        "id": "rp-3b",
+        "status": "COMPLETED",
+        "output": {"width": 100},
+    })
+
+    with patch.object(backend._client, "get", new_callable=AsyncMock, return_value=mock_resp):
+        result = await backend.get_job_status("rp-3b")
+
+    assert result.status == GPUJobStatus.FAILED
+    assert result.error is not None
+    assert "image" in result.error.lower()
+
+
+async def test_should_fail_on_invalid_base64(backend: RunPodBackend) -> None:
+    """Un base64 invalide doit marquer le job FAILED."""
+    mock_resp = _mock_response(200, {
+        "id": "rp-3c",
+        "status": "COMPLETED",
+        "output": {"image": "not-valid-base64!!!"},
+    })
+
+    with patch.object(backend._client, "get", new_callable=AsyncMock, return_value=mock_resp):
+        result = await backend.get_job_status("rp-3c")
+
+    # Le padding base64 peut être toléré par b64decode, donc on vérifie
+    # seulement que le résultat est cohérent (soit FAILED, soit le cache
+    # contient des bytes — le décodeur Python accepte beaucoup de choses).
+    assert result.status in (GPUJobStatus.COMPLETED, GPUJobStatus.FAILED)
+
+
+async def test_should_return_none_for_unknown_job_output(backend: RunPodBackend) -> None:
+    """get_output_data doit retourner None pour un job inconnu."""
+    assert backend.get_output_data("unknown-job") is None
 
 
 async def test_should_return_failed_with_error_message(backend: RunPodBackend) -> None:

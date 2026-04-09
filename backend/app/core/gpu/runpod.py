@@ -34,12 +34,15 @@ class RunPodBackend(GPUBackend):
 
     Chaque instance est liée à un endpoint spécifique identifié par
     ``endpoint_id``. L'authentification se fait via un token Bearer.
+    Les bytes du résultat sont mis en cache en mémoire après
+    décodage du payload base64 retourné par le handler RunPod.
 
     Attributes:
         _api_key: Clé API RunPod.
         _endpoint_id: Identifiant de l'endpoint Serverless.
         _base_url: URL de base construite depuis l'endpoint ID.
         _client: Client HTTP async réutilisable (pool de connexions).
+        _output_cache: Cache ``job_id → bytes`` des résultats décodés.
     """
 
     def __init__(self, api_key: str, endpoint_id: str) -> None:
@@ -56,6 +59,7 @@ class RunPodBackend(GPUBackend):
             headers={"Authorization": f"Bearer {api_key}"},
             timeout=_REQUEST_TIMEOUT,
         )
+        self._output_cache: dict[str, bytes] = {}
 
     async def submit_job(self, image_data: bytes, params: UpscaleParams) -> str:
         """Soumet une image à RunPod pour upscaling.
@@ -146,9 +150,30 @@ class RunPodBackend(GPUBackend):
 
         if status == GPUJobStatus.COMPLETED:
             output = data.get("output", {})
-            output_key = output.get("output_key")
+            # Le handler RunPod renvoie l'image encodée en base64 dans
+            # output.image. On la décode et on la met en cache pour
+            # récupération via get_output_data().
+            image_b64 = output.get("image")
+            if image_b64:
+                try:
+                    self._output_cache[job_id] = base64.b64decode(image_b64)
+                    output_key = job_id
+                except (ValueError, TypeError) as exc:
+                    logger.error(
+                        "RunPod — base64 invalide pour job {job_id} : {err}",
+                        job_id=job_id, err=str(exc),
+                    )
+                    status = GPUJobStatus.FAILED
+                    error = f"Base64 output invalide : {exc}"
+            else:
+                logger.warning(
+                    "RunPod — output sans champ 'image' pour job {job_id}",
+                    job_id=job_id,
+                )
+                status = GPUJobStatus.FAILED
+                error = "Output RunPod sans champ 'image'"
 
-        if status == GPUJobStatus.FAILED:
+        if status == GPUJobStatus.FAILED and error is None:
             error = data.get("error", runpod_status)
 
         return GPUJobResult(
@@ -157,6 +182,22 @@ class RunPodBackend(GPUBackend):
             output_key=output_key,
             error=error,
         )
+
+    def get_output_data(self, job_id: str) -> bytes | None:
+        """Récupère les bytes du résultat d'un job terminé.
+
+        Les bytes sont mis en cache lors du dernier ``get_job_status``
+        retournant COMPLETED. Le cache est volatil : à la fin du worker
+        Celery, il est perdu (mais à ce moment le fichier a déjà été
+        uploadé dans le storage).
+
+        Args:
+            job_id: Identifiant du job RunPod.
+
+        Returns:
+            Bytes de l'image upscalée, ou ``None`` si non disponible.
+        """
+        return self._output_cache.get(job_id)
 
     async def cancel_job(self, job_id: str) -> None:
         """Annule un job RunPod en cours ou en file d'attente.
