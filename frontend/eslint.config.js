@@ -19,5 +19,28 @@ export default defineConfig([
       ecmaVersion: 2020,
       globals: globals.browser,
     },
+    rules: {
+      // Aligne eslint sur la convention TypeScript noUnusedParameters :
+      // un préfixe `_` marque un paramètre volontairement non utilisé
+      // (utile pour respecter une signature d'interface sans consommer l'arg).
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+        },
+      ],
+    },
+  },
+  {
+    // Primitives shadcn/ui — exportent à la fois des composants et des
+    // variants (cva). La règle react-refresh/only-export-components
+    // n'a pas de sens ici car ces fichiers sont copy-paste depuis shadcn
+    // et doivent rester identiques au registry officiel.
+    files: ['src/components/ui/**/*.{ts,tsx}'],
+    rules: {
+      'react-refresh/only-export-components': 'off',
+    },
   },
 ])
