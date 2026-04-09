@@ -1,11 +1,15 @@
 import { BrowserRouter, NavLink, Navigate, Route, Routes } from "react-router-dom";
-import { ImageUp, Clock, Sparkles } from "lucide-react";
+import { ImageUp, Clock, Sparkles, Layers, GalleryHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { UpscalePage } from "@/pages/UpscalePage";
+import { BatchPage } from "@/pages/BatchPage";
+import { GalleryPage } from "@/pages/GalleryPage";
 import { HistoryPage } from "@/pages/HistoryPage";
 
 const NAV_ITEMS = [
   { to: "/upscale", label: "Upscaler", icon: ImageUp },
+  { to: "/batch", label: "Batch", icon: Layers },
+  { to: "/gallery", label: "Galerie", icon: GalleryHorizontal },
   { to: "/history", label: "Historique", icon: Clock },
 ];
 
@@ -60,6 +64,8 @@ export default function App() {
         <main className="flex-1 overflow-y-auto">
           <Routes>
             <Route path="/upscale" element={<UpscalePage />} />
+            <Route path="/batch" element={<BatchPage />} />
+            <Route path="/gallery" element={<GalleryPage />} />
             <Route path="/history" element={<HistoryPage />} />
             <Route path="*" element={<Navigate to="/upscale" replace />} />
           </Routes>
