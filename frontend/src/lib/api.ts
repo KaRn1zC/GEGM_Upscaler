@@ -35,6 +35,19 @@ export interface JobCreateParams {
   model_name?: string;
 }
 
+export interface UserResponse {
+  id: string;
+  email: string;
+  name: string | null;
+  created_at: string;
+}
+
+export interface HealthResponse {
+  status: string;
+  version?: string;
+  checks?: Record<string, string>;
+}
+
 // ── Helpers ──────────────────────────────────────────────────
 
 const AUTH_TOKEN = "dev-secret-token-change-me";
@@ -109,6 +122,30 @@ export async function cancelJob(jobId: string): Promise<void> {
 
 export function getDownloadUrl(jobId: string): string {
   return `${API_BASE}/jobs/${jobId}/download`;
+}
+
+// ── Users ────────────────────────────────────────────────────
+
+export async function getCurrentUser(): Promise<UserResponse> {
+  const res = await fetch(`${API_BASE}/users/me`, { headers: headers() });
+  return handleResponse<UserResponse>(res);
+}
+
+// ── Health ───────────────────────────────────────────────────
+
+export async function getHealth(): Promise<HealthResponse> {
+  const res = await fetch(`${API_BASE}/health`);
+  return handleResponse<HealthResponse>(res);
+}
+
+export async function getReadiness(): Promise<HealthResponse> {
+  const res = await fetch(`${API_BASE}/health/ready`);
+  if (!res.ok) {
+    // 503 : on récupère quand même le body pour afficher les détails.
+    const body = await res.json().catch(() => ({}));
+    return { status: "unhealthy", ...(body.detail ?? body) };
+  }
+  return res.json() as Promise<HealthResponse>;
 }
 
 // ── SSE ──────────────────────────────────────────────────────

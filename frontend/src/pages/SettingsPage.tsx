@@ -1,0 +1,242 @@
+import { useEffect, useState } from "react";
+import { Check, Loader2, Server, User, Wrench, X } from "lucide-react";
+import { getCurrentUser, getReadiness } from "@/lib/api";
+import type { HealthResponse, UserResponse } from "@/lib/api";
+import { MODEL_OPTIONS, SCALE_FACTORS, type ScaleFactor } from "@/lib/constants";
+import { usePreferences } from "@/hooks/usePreferences";
+import { cn } from "@/lib/utils";
+
+export function SettingsPage() {
+  const { preferences, updatePreference, resetPreferences } = usePreferences();
+  const [user, setUser] = useState<UserResponse | null>(null);
+  const [userError, setUserError] = useState<string | null>(null);
+  const [health, setHealth] = useState<HealthResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [userRes, healthRes] = await Promise.allSettled([
+          getCurrentUser(),
+          getReadiness(),
+        ]);
+
+        if (userRes.status === "fulfilled") {
+          setUser(userRes.value);
+        } else {
+          setUserError(userRes.reason instanceof Error ? userRes.reason.message : "Erreur");
+        }
+
+        if (healthRes.status === "fulfilled") {
+          setHealth(healthRes.value);
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+    void fetchData();
+  }, []);
+
+  return (
+    <div className="flex-1 p-6 lg:p-10 max-w-3xl mx-auto w-full">
+      {/* En-tête */}
+      <div className="mb-8">
+        <h1 className="text-2xl font-semibold text-foreground tracking-tight">Paramètres</h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Préférences utilisateur et état du système
+        </p>
+      </div>
+
+      {/* Utilisateur */}
+      <Section icon={User} title="Compte">
+        {loading ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            Chargement...
+          </div>
+        ) : user ? (
+          <div className="space-y-2 text-sm">
+            <Row label="Email" value={user.email} mono />
+            <Row label="Nom" value={user.name ?? "—"} />
+            <Row
+              label="Créé le"
+              value={new Date(user.created_at).toLocaleDateString("fr-FR", {
+                day: "numeric",
+                month: "long",
+                year: "numeric",
+              })}
+            />
+            <Row label="ID" value={user.id} mono muted />
+          </div>
+        ) : (
+          <p className="text-sm text-destructive/80">
+            Impossible de récupérer l'utilisateur : {userError}
+          </p>
+        )}
+      </Section>
+
+      {/* Préférences */}
+      <Section icon={Wrench} title="Préférences">
+        <div className="space-y-5">
+          {/* Facteur par défaut */}
+          <div>
+            <label className="text-xs text-muted-foreground uppercase tracking-wider block mb-2">
+              Facteur d'upscaling par défaut
+            </label>
+            <div className="inline-flex items-center gap-1 bg-muted rounded-lg p-0.5">
+              {SCALE_FACTORS.map((f) => (
+                <button
+                  key={f}
+                  onClick={() => updatePreference("defaultScaleFactor", f as ScaleFactor)}
+                  className={cn(
+                    "text-xs px-4 py-1.5 rounded-md font-medium transition-all",
+                    preferences.defaultScaleFactor === f
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {f}&times;
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Modèle par défaut */}
+          <div>
+            <label className="text-xs text-muted-foreground uppercase tracking-wider block mb-2">
+              Modèle par défaut
+            </label>
+            <div className="flex gap-2">
+              {MODEL_OPTIONS.map((m) => (
+                <button
+                  key={m.value}
+                  onClick={() => updatePreference("defaultModel", m.value)}
+                  className={cn(
+                    "text-xs px-3 py-2 rounded-lg border transition-all",
+                    preferences.defaultModel === m.value
+                      ? "border-primary/50 bg-primary/5 text-foreground"
+                      : "border-border text-muted-foreground hover:text-foreground hover:border-border/80",
+                  )}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Reset */}
+          <div className="pt-2">
+            <button
+              onClick={resetPreferences}
+              className="text-xs text-muted-foreground hover:text-destructive transition-colors"
+            >
+              Réinitialiser aux valeurs par défaut
+            </button>
+          </div>
+        </div>
+      </Section>
+
+      {/* État du système */}
+      <Section icon={Server} title="État du système">
+        {loading ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            Chargement...
+          </div>
+        ) : health ? (
+          <div className="space-y-2">
+            <HealthRow label="Statut global" status={health.status === "ready" ? "ok" : "error"} />
+            {health.checks &&
+              Object.entries(health.checks).map(([name, value]) => (
+                <HealthRow
+                  key={name}
+                  label={name.charAt(0).toUpperCase() + name.slice(1)}
+                  status={value === "ok" ? "ok" : "error"}
+                  detail={value !== "ok" ? value : undefined}
+                />
+              ))}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">Aucune information disponible</p>
+        )}
+      </Section>
+
+      {/* Infos build */}
+      <Section icon={Wrench} title="À propos">
+        <div className="space-y-2 text-sm">
+          <Row label="Version" value="0.1.0" mono />
+          <Row label="Modèle SR" value="DRCT-L (fallback HAT-L)" />
+          <Row label="Stack" value="FastAPI · React 19 · Tauri 2" muted />
+        </div>
+      </Section>
+    </div>
+  );
+}
+
+// ── Helpers ──────────────────────────────────────────────────
+
+interface SectionProps {
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  children: React.ReactNode;
+}
+
+function Section({ icon: Icon, title, children }: SectionProps) {
+  return (
+    <section className="mb-6 rounded-xl border border-border bg-card p-5">
+      <div className="flex items-center gap-2 mb-4">
+        <Icon className="w-4 h-4 text-muted-foreground" />
+        <h2 className="text-sm font-medium text-foreground">{title}</h2>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+interface RowProps {
+  label: string;
+  value: string;
+  mono?: boolean;
+  muted?: boolean;
+}
+
+function Row({ label, value, mono, muted }: RowProps) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <span
+        className={cn(
+          "text-xs truncate",
+          mono && "font-mono",
+          muted ? "text-muted-foreground" : "text-foreground",
+        )}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
+interface HealthRowProps {
+  label: string;
+  status: "ok" | "error";
+  detail?: string;
+}
+
+function HealthRow({ label, status, detail }: HealthRowProps) {
+  return (
+    <div className="flex items-start justify-between gap-4">
+      <div className="flex items-center gap-2">
+        {status === "ok" ? (
+          <Check className="w-3.5 h-3.5 text-success" />
+        ) : (
+          <X className="w-3.5 h-3.5 text-destructive" />
+        )}
+        <span className="text-xs text-foreground">{label}</span>
+      </div>
+      {detail && (
+        <span className="text-xs font-mono text-destructive/70 truncate max-w-xs">{detail}</span>
+      )}
+    </div>
+  );
+}

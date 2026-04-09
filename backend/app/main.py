@@ -19,6 +19,7 @@ from app.core.logging import setup_logging
 from app.core.redis import close_redis_pool
 from app.jobs.router import router as jobs_router
 from app.uploads.router import router as uploads_router
+from app.users.router import router as users_router
 
 # ── Sentry — alertes d'erreurs avec stack trace ────────────────
 if settings.SENTRY_DSN:
@@ -78,9 +79,55 @@ Instrumentator(
 
 app.include_router(uploads_router)
 app.include_router(jobs_router)
+app.include_router(users_router)
 
 
 @app.get("/api/health")
 async def health_check() -> dict[str, str]:
-    """Endpoint de health check pour les load balancers et le monitoring."""
+    """Liveness probe — vérifie simplement que le process répond."""
     return {"status": "healthy", "version": "0.1.0"}
+
+
+@app.get("/api/health/ready")
+async def readiness_check() -> dict[str, object]:
+    """Readiness probe — vérifie les dépendances critiques (DB + Redis).
+
+    Utilisée par les orchestrateurs pour décider si le pod peut recevoir
+    du trafic. Retourne 200 avec le détail de chaque check, ou lève une
+    HTTPException 503 si une dépendance est indisponible.
+
+    Raises:
+        HTTPException: 503 si la DB ou Redis ne répond pas.
+    """
+    from sqlalchemy import text
+
+    from app.core.redis import get_redis_pool
+
+    checks: dict[str, str] = {}
+
+    # Check DB : requête simple SELECT 1.
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+        checks["database"] = "ok"
+    except Exception as exc:
+        logger.error("Health check DB failed: {err}", err=str(exc))
+        checks["database"] = f"error: {exc}"
+
+    # Check Redis : PING.
+    try:
+        redis = get_redis_pool()
+        pong = await redis.ping()
+        checks["redis"] = "ok" if pong else "error: no pong"
+    except Exception as exc:
+        logger.error("Health check Redis failed: {err}", err=str(exc))
+        checks["redis"] = f"error: {exc}"
+
+    all_ok = all(v == "ok" for v in checks.values())
+
+    if not all_ok:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=503, detail={"status": "unhealthy", "checks": checks})
+
+    return {"status": "ready", "checks": checks}

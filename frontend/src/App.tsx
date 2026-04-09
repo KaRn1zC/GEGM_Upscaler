@@ -1,16 +1,25 @@
 import { BrowserRouter, NavLink, Navigate, Route, Routes } from "react-router-dom";
-import { ImageUp, Clock, Sparkles, Layers, GalleryHorizontal } from "lucide-react";
+import {
+  ImageUp,
+  Clock,
+  Sparkles,
+  Layers,
+  GalleryHorizontal,
+  Settings,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { UpscalePage } from "@/pages/UpscalePage";
 import { BatchPage } from "@/pages/BatchPage";
 import { GalleryPage } from "@/pages/GalleryPage";
 import { HistoryPage } from "@/pages/HistoryPage";
+import { SettingsPage } from "@/pages/SettingsPage";
 
 const NAV_ITEMS = [
   { to: "/upscale", label: "Upscaler", icon: ImageUp },
   { to: "/batch", label: "Batch", icon: Layers },
   { to: "/gallery", label: "Galerie", icon: GalleryHorizontal },
   { to: "/history", label: "Historique", icon: Clock },
+  { to: "/settings", label: "Paramètres", icon: Settings },
 ];
 
 function Sidebar() {
@@ -67,6 +76,7 @@ export default function App() {
             <Route path="/batch" element={<BatchPage />} />
             <Route path="/gallery" element={<GalleryPage />} />
             <Route path="/history" element={<HistoryPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/upscale" replace />} />
           </Routes>
         </main>
