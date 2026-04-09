@@ -172,7 +172,9 @@ def merge_tiles(
         has_bottom = y + th < output_height
 
         mask = _build_blend_mask(
-            tw, th, overlap,
+            tw,
+            th,
+            overlap,
             has_left=has_left,
             has_top=has_top,
             has_right=has_right,

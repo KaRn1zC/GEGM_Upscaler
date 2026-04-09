@@ -163,20 +163,24 @@ async def _run_pipeline(job_id: str) -> None:
             except FileNotFoundError as exc:
                 await _mark_failed(session, job, f"Image introuvable : {exc}")
                 _publish_progress_sync(
-                    redis, job_id, status="failed", progress=0.0,
+                    redis,
+                    job_id,
+                    status="failed",
+                    progress=0.0,
                     error_message=f"Image introuvable : {exc}",
                 )
                 return
 
-            _publish_progress_sync(
-                redis, job_id, status="processing", progress=0.15, step="loaded"
-            )
+            _publish_progress_sync(redis, job_id, status="processing", progress=0.15, step="loaded")
 
             # Étape 3 : routage GPU.
             mp = compute_megapixels(job.input_width, job.input_height)
             logger.info(
                 "Routage GPU — job={job_id} dimensions={w}x{h} ({mp:.1f} MP)",
-                job_id=job_id, w=job.input_width, h=job.input_height, mp=mp,
+                job_id=job_id,
+                w=job.input_width,
+                h=job.input_height,
+                mp=mp,
             )
 
             local_backend = _try_build_local_backend(job.model_name)
@@ -192,16 +196,18 @@ async def _run_pipeline(job_id: str) -> None:
             except RuntimeError as exc:
                 await _mark_failed(session, job, str(exc))
                 _publish_progress_sync(
-                    redis, job_id, status="failed", progress=0.0, error_message=str(exc),
+                    redis,
+                    job_id,
+                    status="failed",
+                    progress=0.0,
+                    error_message=str(exc),
                 )
                 return
 
             job.gpu_backend = "local" if gpu is local_backend else "cloud"
             await session.commit()
 
-            _publish_progress_sync(
-                redis, job_id, status="processing", progress=0.25, step="routed"
-            )
+            _publish_progress_sync(redis, job_id, status="processing", progress=0.25, step="routed")
 
             # Étape 4 : soumission à l'inférence.
             params = UpscaleParams(
@@ -215,7 +221,10 @@ async def _run_pipeline(job_id: str) -> None:
             except Exception as exc:
                 await _mark_failed(session, job, f"Soumission GPU échouée : {exc}")
                 _publish_progress_sync(
-                    redis, job_id, status="failed", progress=0.0,
+                    redis,
+                    job_id,
+                    status="failed",
+                    progress=0.0,
                     error_message=f"Soumission GPU échouée : {exc}",
                 )
                 return
@@ -231,20 +240,25 @@ async def _run_pipeline(job_id: str) -> None:
                 error = result.error or "Inférence échouée"
                 await _mark_failed(session, job, error)
                 _publish_progress_sync(
-                    redis, job_id, status="failed", progress=0.0, error_message=error,
+                    redis,
+                    job_id,
+                    status="failed",
+                    progress=0.0,
+                    error_message=error,
                 )
                 return
 
-            _publish_progress_sync(
-                redis, job_id, status="processing", progress=0.85, step="saving"
-            )
+            _publish_progress_sync(redis, job_id, status="processing", progress=0.85, step="saving")
 
             # Étape 6 : récupération du résultat (bytes) et sauvegarde.
             output_bytes = _extract_output_bytes(gpu, gpu_job_id, result)
             if output_bytes is None:
                 await _mark_failed(session, job, "Résultat GPU vide")
                 _publish_progress_sync(
-                    redis, job_id, status="failed", progress=0.0,
+                    redis,
+                    job_id,
+                    status="failed",
+                    progress=0.0,
                     error_message="Résultat GPU vide",
                 )
                 return
@@ -262,15 +276,23 @@ async def _run_pipeline(job_id: str) -> None:
             await session.commit()
 
             _publish_progress_sync(
-                redis, job_id, status="completed", progress=1.0,
-                step="done", output_key=output_key,
+                redis,
+                job_id,
+                status="completed",
+                progress=1.0,
+                step="done",
+                output_key=output_key,
             )
 
             logger.info("Job {job_id} terminé avec succès", job_id=job_id)
     except Exception as exc:
         logger.exception("Job {job_id} échoué : {err}", job_id=job_id, err=str(exc))
         _publish_progress_sync(
-            redis, job_id, status="failed", progress=0.0, error_message=str(exc),
+            redis,
+            job_id,
+            status="failed",
+            progress=0.0,
+            error_message=str(exc),
         )
         raise
     finally:
@@ -302,6 +324,7 @@ def _try_build_local_backend(model_name: str) -> object | None:
 
     try:
         from app.core.gpu.local_coreml import CoreMLBackend
+
         return CoreMLBackend(model_path=str(model_path))
     except ImportError:
         logger.debug("coremltools non disponible — backend local désactivé")
@@ -324,6 +347,7 @@ def _try_build_cloud_backend() -> object | None:
         return None
 
     from app.core.gpu.runpod import RunPodBackend
+
     return RunPodBackend(api_key=api_key, endpoint_id=endpoint_id)
 
 

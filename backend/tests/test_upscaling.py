@@ -190,9 +190,7 @@ def test_should_split_and_merge_without_loss() -> None:
     merged = merge_tiles(tiles, output_width=300, output_height=200, overlap=16)
 
     # Tolérance de 1 à cause du blending float → uint8.
-    np.testing.assert_allclose(
-        original.astype(float), merged.astype(float), atol=1.5
-    )
+    np.testing.assert_allclose(original.astype(float), merged.astype(float), atol=1.5)
 
 
 def test_should_handle_exact_tile_size() -> None:

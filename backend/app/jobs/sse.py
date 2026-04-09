@@ -135,11 +135,14 @@ async def stream_job_progress(
 
         # Timeout atteint sans état terminal.
         logger.warning("SSE stream timeout pour le job {job_id}", job_id=job_id)
-        yield _format_sse("error", {
-            "job_id": job_id,
-            "status": "timeout",
-            "error_message": "Le stream de progression a expiré",
-        })
+        yield _format_sse(
+            "error",
+            {
+                "job_id": job_id,
+                "status": "timeout",
+                "error_message": "Le stream de progression a expiré",
+            },
+        )
 
     finally:
         await pubsub.aclose()

@@ -143,9 +143,7 @@ async def test_should_emit_single_event_for_completed_job(
     )
 
     events: list[str] = []
-    async for event in stream_job_progress(
-        fake_redis, "job-done", initial_status="completed"
-    ):
+    async for event in stream_job_progress(fake_redis, "job-done", initial_status="completed"):
         events.append(event)
 
     assert len(events) == 1
@@ -157,9 +155,7 @@ async def test_should_emit_single_event_for_failed_job(
 ) -> None:
     """Un job en échec doit émettre un événement error puis fermer."""
     events: list[str] = []
-    async for event in stream_job_progress(
-        fake_redis, "job-fail", initial_status="failed"
-    ):
+    async for event in stream_job_progress(fake_redis, "job-fail", initial_status="failed"):
         events.append(event)
 
     assert len(events) == 1
@@ -206,9 +202,7 @@ async def test_should_emit_error_for_cancelled_job(
 ) -> None:
     """Un job annulé doit émettre un événement error."""
     events: list[str] = []
-    async for event in stream_job_progress(
-        fake_redis, "job-cancel", initial_status="cancelled"
-    ):
+    async for event in stream_job_progress(fake_redis, "job-cancel", initial_status="cancelled"):
         events.append(event)
 
     assert len(events) == 1

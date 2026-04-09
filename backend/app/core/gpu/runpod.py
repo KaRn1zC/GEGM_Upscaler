@@ -95,9 +95,7 @@ class RunPodBackend(GPUBackend):
                 status=response.status_code,
                 body=response.text[:500],
             )
-            raise RuntimeError(
-                f"RunPod API error {response.status_code}: {response.text[:200]}"
-            )
+            raise RuntimeError(f"RunPod API error {response.status_code}: {response.text[:200]}")
 
         data = response.json()
         job_id: str = data["id"]
@@ -133,9 +131,7 @@ class RunPodBackend(GPUBackend):
                 status=response.status_code,
                 job_id=job_id,
             )
-            raise RuntimeError(
-                f"RunPod API error {response.status_code}: {response.text[:200]}"
-            )
+            raise RuntimeError(f"RunPod API error {response.status_code}: {response.text[:200]}")
 
         data = response.json()
         runpod_status = data.get("status", "FAILED")
@@ -161,7 +157,8 @@ class RunPodBackend(GPUBackend):
                 except (ValueError, TypeError) as exc:
                     logger.error(
                         "RunPod — base64 invalide pour job {job_id} : {err}",
-                        job_id=job_id, err=str(exc),
+                        job_id=job_id,
+                        err=str(exc),
                     )
                     status = GPUJobStatus.FAILED
                     error = f"Base64 output invalide : {exc}"

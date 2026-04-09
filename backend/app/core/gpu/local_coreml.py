@@ -56,8 +56,7 @@ def _load_model(model_path: str) -> Any:
         import coremltools as ct
     except ImportError as exc:
         raise ImportError(
-            "coremltools est requis pour l'inférence Core ML. "
-            "Installer avec : uv add coremltools"
+            "coremltools est requis pour l'inférence Core ML. Installer avec : uv add coremltools"
         ) from exc
 
     path = Path(model_path)
@@ -149,9 +148,7 @@ class CoreMLBackend(GPUBackend):
         )
 
         try:
-            output_bytes = await asyncio.to_thread(
-                self._run_inference, image_data, params
-            )
+            output_bytes = await asyncio.to_thread(self._run_inference, image_data, params)
 
             self._results[job_id] = GPUJobResult(
                 status=GPUJobStatus.COMPLETED,
@@ -225,7 +222,9 @@ class CoreMLBackend(GPUBackend):
 
         logger.debug(
             "Inférence Core ML — {w}x{h} pixels, facteur x{s}",
-            w=w, h=h, s=params.scale_factor,
+            w=w,
+            h=h,
+            s=params.scale_factor,
         )
 
         # Découpage en tuiles.

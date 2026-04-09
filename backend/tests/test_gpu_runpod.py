@@ -109,11 +109,14 @@ async def test_should_decode_and_cache_completed_image(backend: RunPodBackend) -
     original_bytes = b"\x89PNG\r\n\x1a\nfake-image-data"
     encoded = b64.b64encode(original_bytes).decode("ascii")
 
-    mock_resp = _mock_response(200, {
-        "id": "rp-3",
-        "status": "COMPLETED",
-        "output": {"image": encoded, "width": 100, "height": 100},
-    })
+    mock_resp = _mock_response(
+        200,
+        {
+            "id": "rp-3",
+            "status": "COMPLETED",
+            "output": {"image": encoded, "width": 100, "height": 100},
+        },
+    )
 
     with patch.object(backend._client, "get", new_callable=AsyncMock, return_value=mock_resp):
         result = await backend.get_job_status("rp-3")
@@ -128,11 +131,14 @@ async def test_should_fail_when_completed_without_image_field(
     backend: RunPodBackend,
 ) -> None:
     """Un COMPLETED sans champ image doit être marqué FAILED."""
-    mock_resp = _mock_response(200, {
-        "id": "rp-3b",
-        "status": "COMPLETED",
-        "output": {"width": 100},
-    })
+    mock_resp = _mock_response(
+        200,
+        {
+            "id": "rp-3b",
+            "status": "COMPLETED",
+            "output": {"width": 100},
+        },
+    )
 
     with patch.object(backend._client, "get", new_callable=AsyncMock, return_value=mock_resp):
         result = await backend.get_job_status("rp-3b")
@@ -144,11 +150,14 @@ async def test_should_fail_when_completed_without_image_field(
 
 async def test_should_fail_on_invalid_base64(backend: RunPodBackend) -> None:
     """Un base64 invalide doit marquer le job FAILED."""
-    mock_resp = _mock_response(200, {
-        "id": "rp-3c",
-        "status": "COMPLETED",
-        "output": {"image": "not-valid-base64!!!"},
-    })
+    mock_resp = _mock_response(
+        200,
+        {
+            "id": "rp-3c",
+            "status": "COMPLETED",
+            "output": {"image": "not-valid-base64!!!"},
+        },
+    )
 
     with patch.object(backend._client, "get", new_callable=AsyncMock, return_value=mock_resp):
         result = await backend.get_job_status("rp-3c")
@@ -166,11 +175,14 @@ async def test_should_return_none_for_unknown_job_output(backend: RunPodBackend)
 
 async def test_should_return_failed_with_error_message(backend: RunPodBackend) -> None:
     """Un job FAILED doit inclure le message d'erreur."""
-    mock_resp = _mock_response(200, {
-        "id": "rp-4",
-        "status": "FAILED",
-        "error": "CUDA out of memory",
-    })
+    mock_resp = _mock_response(
+        200,
+        {
+            "id": "rp-4",
+            "status": "FAILED",
+            "error": "CUDA out of memory",
+        },
+    )
 
     with patch.object(backend._client, "get", new_callable=AsyncMock, return_value=mock_resp):
         result = await backend.get_job_status("rp-4")

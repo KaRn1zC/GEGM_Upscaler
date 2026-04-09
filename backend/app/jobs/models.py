@@ -62,9 +62,7 @@ class Job(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
-    status: Mapped[str] = mapped_column(
-        String(20), default=JobStatus.PENDING, index=True
-    )
+    status: Mapped[str] = mapped_column(String(20), default=JobStatus.PENDING, index=True)
 
     # -- Fichiers --
     input_key: Mapped[str] = mapped_column(String(500))
@@ -88,9 +86,7 @@ class Job(Base):
     error_message: Mapped[str | None] = mapped_column(Text)
 
     # -- Timestamps --
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

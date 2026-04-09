@@ -17,9 +17,7 @@ def _make_test_image(width: int = 100, height: int = 80) -> bytes:
     return buffer.getvalue()
 
 
-async def _upload_image(
-    client: AsyncClient, width: int = 100, height: int = 80
-) -> str:
+async def _upload_image(client: AsyncClient, width: int = 100, height: int = 80) -> str:
     """Upload une image de test et retourne la clé de stockage."""
     content = _make_test_image(width, height)
     response = await client.post(
@@ -56,9 +54,7 @@ async def test_should_create_job(mock_task: object, client: AsyncClient) -> None
 
 
 @patch("app.jobs.tasks.process_upscale")
-async def test_should_create_job_with_custom_params(
-    mock_task: object, client: AsyncClient
-) -> None:
+async def test_should_create_job_with_custom_params(mock_task: object, client: AsyncClient) -> None:
     """La création accepte un scale_factor et model_name personnalisés."""
     key = await _upload_image(client)
 
@@ -75,9 +71,7 @@ async def test_should_create_job_with_custom_params(
 
 
 @patch("app.jobs.tasks.process_upscale")
-async def test_should_reject_missing_input_key(
-    mock_task: object, client: AsyncClient
-) -> None:
+async def test_should_reject_missing_input_key(mock_task: object, client: AsyncClient) -> None:
     """Un input_key inexistant retourne 404."""
     response = await client.post(
         "/api/jobs",
@@ -111,9 +105,7 @@ async def test_should_list_user_jobs(mock_task: object, client: AsyncClient) -> 
 async def test_should_get_job_detail(mock_task: object, client: AsyncClient) -> None:
     """Le détail d'un job retourne ses métadonnées complètes."""
     key = await _upload_image(client)
-    create_resp = await client.post(
-        "/api/jobs", json={"input_key": key}, headers=AUTH_HEADERS
-    )
+    create_resp = await client.post("/api/jobs", json={"input_key": key}, headers=AUTH_HEADERS)
     job_id = create_resp.json()["id"]
 
     response = await client.get(f"/api/jobs/{job_id}", headers=AUTH_HEADERS)
@@ -123,9 +115,7 @@ async def test_should_get_job_detail(mock_task: object, client: AsyncClient) -> 
 
 
 @patch("app.jobs.tasks.process_upscale")
-async def test_should_return_404_for_unknown_job(
-    mock_task: object, client: AsyncClient
-) -> None:
+async def test_should_return_404_for_unknown_job(mock_task: object, client: AsyncClient) -> None:
     """Un ID de job inexistant retourne 404."""
     response = await client.get(
         "/api/jobs/00000000-0000-0000-0000-000000000000",
@@ -139,14 +129,10 @@ async def test_should_return_404_for_unknown_job(
 
 
 @patch("app.jobs.tasks.process_upscale")
-async def test_should_cancel_pending_job(
-    mock_task: object, client: AsyncClient
-) -> None:
+async def test_should_cancel_pending_job(mock_task: object, client: AsyncClient) -> None:
     """L'annulation d'un job pending retourne 204 et passe en cancelled."""
     key = await _upload_image(client)
-    create_resp = await client.post(
-        "/api/jobs", json={"input_key": key}, headers=AUTH_HEADERS
-    )
+    create_resp = await client.post("/api/jobs", json={"input_key": key}, headers=AUTH_HEADERS)
     job_id = create_resp.json()["id"]
 
     delete_resp = await client.delete(f"/api/jobs/{job_id}", headers=AUTH_HEADERS)
