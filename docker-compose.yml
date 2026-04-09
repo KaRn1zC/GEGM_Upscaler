@@ -1,5 +1,8 @@
-# Services d'infrastructure pour le développement local.
+# Stack applicative pour le développement et le déploiement local.
 # Usage : docker compose up -d
+#
+# Pour ajouter le monitoring (Loki, Prometheus, Grafana, Flower) :
+#   docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
 
 services:
   postgres:
@@ -30,6 +33,75 @@ services:
       timeout: 3s
       retries: 5
 
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: gegm-upscaler-backend:latest
+    ports:
+      - "8000:8000"
+    environment:
+      APP_ENV: development
+      DATABASE_URL: postgresql+asyncpg://upscaler:upscaler@postgres:5432/upscaler
+      REDIS_URL: redis://redis:6379/0
+      STORAGE_BACKEND: local
+      LOCAL_STORAGE_PATH: /data
+      AUTH_BACKEND: static_token
+      DEV_AUTH_TOKEN: ${DEV_AUTH_TOKEN:-dev-secret-token-change-me}
+      UPSCALE_MODEL: ${UPSCALE_MODEL:-drct-l}
+      COREML_MODEL_DIR: /models
+      RUNPOD_API_KEY: ${RUNPOD_API_KEY:-}
+      RUNPOD_ENDPOINT_ID: ${RUNPOD_ENDPOINT_ID:-}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+    volumes:
+      - storage-data:/data
+      - models:/models:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    command: >
+      sh -c "
+        alembic upgrade head &&
+        uvicorn app.main:app --host 0.0.0.0 --port 8000
+      "
+
+  worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: gegm-upscaler-backend:latest
+    environment:
+      APP_ENV: development
+      DATABASE_URL: postgresql+asyncpg://upscaler:upscaler@postgres:5432/upscaler
+      REDIS_URL: redis://redis:6379/0
+      STORAGE_BACKEND: local
+      LOCAL_STORAGE_PATH: /data
+      AUTH_BACKEND: static_token
+      DEV_AUTH_TOKEN: ${DEV_AUTH_TOKEN:-dev-secret-token-change-me}
+      UPSCALE_MODEL: ${UPSCALE_MODEL:-drct-l}
+      COREML_MODEL_DIR: /models
+      RUNPOD_API_KEY: ${RUNPOD_API_KEY:-}
+      RUNPOD_ENDPOINT_ID: ${RUNPOD_ENDPOINT_ID:-}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+    volumes:
+      - storage-data:/data
+      - models:/models:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A app.main.celery_app worker --loglevel=info --concurrency=2
+
 volumes:
   pgdata:
   redisdata:
+  storage-data:
+  models:
