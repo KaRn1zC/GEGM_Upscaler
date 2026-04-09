@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { m, AnimatePresence, Reorder } from "motion/react";
 import { useDropzone } from "react-dropzone";
 import { Upload, X, Play, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -68,129 +69,224 @@ export function BatchPanel({ onSubmit, isSubmitting }: BatchPanelProps) {
       : `${(bytes / 1024).toFixed(0)} Ko`;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       {/* Dropzone */}
-      <div
-        {...getRootProps()}
-        className={cn(
-          "relative rounded-xl border-2 border-dashed transition-all duration-300 cursor-pointer",
-          "bg-[repeating-linear-gradient(45deg,transparent,transparent_10px,rgba(99,102,241,0.02)_10px,rgba(99,102,241,0.02)_20px)]",
-          isDragActive
-            ? "border-primary bg-primary/5 shadow-[0_0_30px_rgba(99,102,241,0.15)]"
-            : "border-border/60 hover:border-border hover:bg-muted/30",
-          isSubmitting && "opacity-50 cursor-not-allowed",
-        )}
+      <m.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
       >
-        <input {...getInputProps()} />
-        <div className="flex flex-col items-center justify-center py-10 px-6">
+        <div
+          {...getRootProps()}
+          className={cn(
+            "relative rounded-2xl border-2 border-dashed cursor-pointer overflow-hidden transition-all duration-500",
+            isDragActive
+              ? "border-primary bg-primary/5 glow-md"
+              : "border-border/70 hover:border-border magnetic-pulse",
+            isSubmitting && "opacity-50 cursor-not-allowed pointer-events-none",
+          )}
+        >
+          <input {...getInputProps()} />
+
+          {/* Grille diagonale subtile */}
           <div
-            className={cn(
-              "w-12 h-12 rounded-2xl flex items-center justify-center mb-4 transition-all duration-300",
-              isDragActive
-                ? "bg-primary/15 text-primary scale-110"
-                : "bg-muted text-muted-foreground",
-            )}
-          >
-            <Upload className="w-5 h-5" />
+            className="absolute inset-0 opacity-[0.04] pointer-events-none"
+            style={{
+              backgroundImage:
+                "linear-gradient(45deg, transparent 48%, #1436de 49%, #1436de 51%, transparent 52%)",
+              backgroundSize: "28px 28px",
+            }}
+          />
+
+          <div className="relative flex flex-col items-center justify-center py-14 px-6">
+            <m.div
+              animate={
+                isDragActive
+                  ? { scale: [1, 1.08, 1], rotate: [0, 2, -2, 0] }
+                  : { scale: 1, rotate: 0 }
+              }
+              transition={{
+                duration: 1.6,
+                repeat: isDragActive ? Infinity : 0,
+                ease: "easeInOut",
+              }}
+              className={cn(
+                "w-14 h-14 rounded-2xl flex items-center justify-center mb-5 transition-colors duration-300",
+                isDragActive
+                  ? "bg-primary/20 text-primary glow-pulse"
+                  : "bg-card border border-border text-muted-foreground",
+              )}
+            >
+              <Upload className="w-6 h-6" strokeWidth={1.5} />
+            </m.div>
+            <p className="font-display font-light text-xl lg:text-2xl text-foreground text-center leading-tight">
+              {isDragActive
+                ? "Déposer les images"
+                : "Glisser plusieurs images"}
+            </p>
+            <p className="mt-2.5 text-[10px] uppercase tracking-[0.22em] text-muted-foreground font-sans text-center">
+              Sélection multiple · Traitement parallèle
+            </p>
           </div>
-          <p className="text-sm font-medium text-foreground mb-1">
-            {isDragActive
-              ? "Déposer les images"
-              : "Glisser plusieurs images ou cliquer pour parcourir"}
-          </p>
-          <p className="text-xs text-muted-foreground">
-            Sélection multiple — toutes les images seront traitées en parallèle
-          </p>
         </div>
-      </div>
+      </m.div>
 
       {/* Paramètres batch */}
-      {queue.length > 0 && (
-        <div className="flex items-center justify-between gap-3 p-3 rounded-xl border border-border bg-card">
-          <div className="flex items-center gap-3 min-w-0">
-            <span className="text-xs font-mono text-muted-foreground">
-              {queue.length} image{queue.length > 1 ? "s" : ""}
-              <span className="mx-1.5 opacity-40">·</span>
-              {formatSize(totalSize)}
-            </span>
-          </div>
+      <AnimatePresence>
+        {queue.length > 0 && (
+          <m.div
+            initial={{ opacity: 0, y: -8, height: 0 }}
+            animate={{ opacity: 1, y: 0, height: "auto" }}
+            exit={{ opacity: 0, y: -8, height: 0 }}
+            transition={{ type: "spring", stiffness: 260, damping: 26 }}
+            className="overflow-hidden"
+          >
+            <div className="flex items-center justify-between gap-3 p-4 rounded-xl border border-border bg-card flex-wrap">
+              <div className="flex items-center gap-3 min-w-0">
+                <span
+                  data-tabular
+                  className="text-[10px] font-mono uppercase tracking-[0.15em] text-muted-foreground"
+                >
+                  <span className="text-primary font-semibold">
+                    {queue.length}
+                  </span>{" "}
+                  image{queue.length > 1 ? "s" : ""}
+                  <span className="mx-1.5 opacity-40">·</span>
+                  {formatSize(totalSize)}
+                </span>
+              </div>
 
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1 bg-muted rounded-lg p-0.5">
-              {SCALE_FACTORS.map((f) => (
-                <button
-                  key={f}
-                  onClick={() => setScaleFactor(f)}
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Sélecteur de facteur avec indicateur glissant */}
+                <div className="relative flex items-center gap-1 bg-muted rounded-lg p-0.5">
+                  {SCALE_FACTORS.map((f) => (
+                    <m.button
+                      key={f}
+                      onClick={() => setScaleFactor(f)}
+                      disabled={isSubmitting}
+                      whileTap={{ scale: 0.93 }}
+                      className="relative z-10 text-xs px-4 py-1.5 rounded-md font-semibold font-mono"
+                    >
+                      {scaleFactor === f && (
+                        <m.div
+                          layoutId="batch-scale-indicator"
+                          className="absolute inset-0 bg-primary rounded-md glow-sm"
+                          transition={{
+                            type: "spring",
+                            stiffness: 400,
+                            damping: 30,
+                          }}
+                        />
+                      )}
+                      <span
+                        data-tabular
+                        className={cn(
+                          "relative",
+                          scaleFactor === f
+                            ? "text-primary-foreground"
+                            : "text-muted-foreground",
+                        )}
+                      >
+                        {f}×
+                      </span>
+                    </m.button>
+                  ))}
+                </div>
+
+                <m.button
+                  onClick={clearQueue}
                   disabled={isSubmitting}
-                  className={cn(
-                    "text-xs px-3 py-1.5 rounded-md font-medium transition-all",
-                    scaleFactor === f
-                      ? "bg-primary text-primary-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground",
+                  whileHover={{ scale: 1.03 }}
+                  whileTap={{ scale: 0.96 }}
+                  transition={{ type: "spring", stiffness: 400, damping: 25 }}
+                  className="text-[11px] font-medium px-3 py-2 rounded-lg bg-muted text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
+                >
+                  Vider
+                </m.button>
+
+                <m.button
+                  onClick={handleSubmit}
+                  disabled={isSubmitting}
+                  whileHover={!isSubmitting ? { scale: 1.03, y: -1 } : {}}
+                  whileTap={!isSubmitting ? { scale: 0.96 } : {}}
+                  transition={{ type: "spring", stiffness: 400, damping: 25 }}
+                  className="text-[11px] font-medium px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:glow-md transition-shadow flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Envoi...
+                    </>
+                  ) : (
+                    <>
+                      <Play className="w-3.5 h-3.5" strokeWidth={2.5} />
+                      Lancer le batch
+                    </>
                   )}
-                >
-                  {f}&times;
-                </button>
-              ))}
-            </div>
-
-            <button
-              onClick={clearQueue}
-              disabled={isSubmitting}
-              className="text-xs px-3 py-2 rounded-lg bg-muted text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-            >
-              Vider
-            </button>
-
-            <button
-              onClick={handleSubmit}
-              disabled={isSubmitting}
-              className="text-xs px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors flex items-center gap-1.5 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  Envoi...
-                </>
-              ) : (
-                <>
-                  <Play className="w-3.5 h-3.5" />
-                  Lancer le batch
-                </>
-              )}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Grille de previews */}
-      {queue.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-          {queue.map((item) => (
-            <div
-              key={item.id}
-              className="relative group rounded-lg overflow-hidden border border-border bg-card aspect-square"
-            >
-              <img
-                src={item.previewUrl}
-                alt={item.file.name}
-                className="w-full h-full object-cover"
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent opacity-0 group-hover:opacity-100 transition-opacity">
-                <button
-                  onClick={() => removeItem(item.id)}
-                  disabled={isSubmitting}
-                  className="absolute top-1.5 right-1.5 p-1 rounded-md bg-black/60 text-white hover:bg-destructive transition-colors"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-                <p className="absolute bottom-1.5 left-1.5 right-1.5 text-[10px] font-mono text-white/90 truncate">
-                  {item.file.name}
-                </p>
+                </m.button>
               </div>
             </div>
-          ))}
-        </div>
+          </m.div>
+        )}
+      </AnimatePresence>
+
+      {/* Grille de previews avec reorder drag */}
+      {queue.length > 0 && (
+        <Reorder.Group
+          axis="y"
+          values={queue}
+          onReorder={setQueue}
+          className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3"
+          as="div"
+        >
+          <AnimatePresence>
+            {queue.map((item) => (
+              <Reorder.Item
+                key={item.id}
+                value={item}
+                as="div"
+                initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.85, y: -10 }}
+                transition={{ type: "spring", stiffness: 280, damping: 26 }}
+                whileHover={{ y: -3 }}
+                whileDrag={{ scale: 1.05, zIndex: 50 }}
+                className="relative group rounded-lg overflow-hidden border border-border bg-card aspect-square cursor-grab active:cursor-grabbing"
+              >
+                <img
+                  src={item.previewUrl}
+                  alt={item.file.name}
+                  className="w-full h-full object-cover"
+                />
+
+                {/* Overlay gradient */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+
+                {/* Bordure intérieure au hover */}
+                <div className="absolute inset-0 rounded-lg ring-1 ring-inset ring-primary/0 group-hover:ring-primary/40 transition-all duration-500 pointer-events-none" />
+
+                {/* Bouton close */}
+                <m.button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeItem(item.id);
+                  }}
+                  disabled={isSubmitting}
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
+                  className="absolute top-2 right-2 p-1 rounded-md bg-black/70 text-white hover:bg-destructive backdrop-blur-sm transition-colors opacity-0 group-hover:opacity-100"
+                >
+                  <X className="w-3 h-3" />
+                </m.button>
+
+                {/* Nom du fichier */}
+                <p className="absolute bottom-2 left-2 right-2 text-[9px] font-mono uppercase tracking-wider text-white/95 truncate opacity-0 group-hover:opacity-100 transition-opacity">
+                  {item.file.name}
+                </p>
+              </Reorder.Item>
+            ))}
+          </AnimatePresence>
+        </Reorder.Group>
       )}
     </div>
   );

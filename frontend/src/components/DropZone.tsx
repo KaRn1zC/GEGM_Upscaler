@@ -1,16 +1,28 @@
 import { useCallback, useState } from "react";
+import { m, AnimatePresence } from "motion/react";
 import { useDropzone } from "react-dropzone";
 import { Upload, X, ImageIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { ACCEPTED_IMAGE_TYPES, MAX_FILE_SIZE_BYTES, MAX_FILE_SIZE_MB } from "@/lib/constants";
+import {
+  ACCEPTED_IMAGE_TYPES,
+  MAX_FILE_SIZE_BYTES,
+  MAX_FILE_SIZE_MB,
+} from "@/lib/constants";
 
 interface DropZoneProps {
   onFileAccepted: (file: File) => void;
   disabled?: boolean;
 }
 
+interface PreviewState {
+  url: string;
+  name: string;
+  size: string;
+  megapixels?: number;
+}
+
 export function DropZone({ onFileAccepted, disabled = false }: DropZoneProps) {
-  const [preview, setPreview] = useState<{ url: string; name: string; size: string } | null>(null);
+  const [preview, setPreview] = useState<PreviewState | null>(null);
 
   const onDrop = useCallback(
     (accepted: File[]) => {
@@ -23,6 +35,13 @@ export function DropZone({ onFileAccepted, disabled = false }: DropZoneProps) {
           ? `${(file.size / 1024 / 1024).toFixed(1)} Mo`
           : `${(file.size / 1024).toFixed(0)} Ko`;
 
+      // Lecture asynchrone des dimensions pour calculer les mégapixels réels.
+      const img = new Image();
+      img.onload = () => {
+        const mp = (img.width * img.height) / 1_000_000;
+        setPreview({ url, name: file.name, size, megapixels: mp });
+      };
+      img.src = url;
       setPreview({ url, name: file.name, size });
       onFileAccepted(file);
     },
@@ -44,67 +63,138 @@ export function DropZone({ onFileAccepted, disabled = false }: DropZoneProps) {
     disabled,
   });
 
-  if (preview) {
-    return (
-      <div className="relative group rounded-xl overflow-hidden border border-border bg-card">
-        <img
-          src={preview.url}
-          alt={preview.name}
-          className="w-full h-64 object-contain bg-black/40"
-        />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
-        <div className="absolute bottom-0 inset-x-0 p-4 flex items-end justify-between">
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-white truncate">{preview.name}</p>
-            <p className="text-xs text-white/60">{preview.size}</p>
-          </div>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              clearPreview();
-            }}
-            className="shrink-0 ml-3 p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white/80 hover:text-white transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div
-      {...getRootProps()}
-      className={cn(
-        "relative rounded-xl border-2 border-dashed transition-all duration-300 cursor-pointer",
-        "bg-[repeating-linear-gradient(45deg,transparent,transparent_10px,rgba(99,102,241,0.02)_10px,rgba(99,102,241,0.02)_20px)]",
-        isDragActive
-          ? "border-primary bg-primary/5 shadow-[0_0_30px_rgba(99,102,241,0.15)]"
-          : "border-border/60 hover:border-border hover:bg-muted/30",
-        disabled && "opacity-50 cursor-not-allowed",
-      )}
-    >
-      <input {...getInputProps()} />
-
-      <div className="flex flex-col items-center justify-center py-16 px-6">
-        <div
-          className={cn(
-            "w-14 h-14 rounded-2xl flex items-center justify-center mb-5 transition-all duration-300",
-            isDragActive
-              ? "bg-primary/15 text-primary scale-110"
-              : "bg-muted text-muted-foreground",
-          )}
+    <AnimatePresence mode="wait" initial={false}>
+      {preview ? (
+        <m.div
+          key="preview"
+          initial={{ opacity: 0, scale: 0.96, y: 20 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.96, y: -10 }}
+          transition={{ type: "spring", stiffness: 260, damping: 24 }}
+          className="relative rounded-2xl overflow-hidden border border-border bg-card group"
         >
-          {isDragActive ? <ImageIcon className="w-6 h-6" /> : <Upload className="w-6 h-6" />}
-        </div>
+          <img
+            src={preview.url}
+            alt={preview.name}
+            className="w-full h-80 object-contain bg-[#040406]"
+          />
 
-        <p className="text-sm font-medium text-foreground mb-1">
-          {isDragActive ? "Déposer l'image ici" : "Glisser une image ou cliquer pour parcourir"}
-        </p>
-        <p className="text-xs text-muted-foreground">
-          PNG, JPEG, WebP, TIFF — {MAX_FILE_SIZE_MB} Mo max
-        </p>
-      </div>
-    </div>
+          {/* Dégradé bas pour contraste du texte */}
+          <div className="absolute inset-0 bg-gradient-to-t from-black via-black/30 to-transparent pointer-events-none" />
+
+          {/* Bordure intérieure fine bleu électrique au hover */}
+          <div className="absolute inset-0 rounded-2xl ring-1 ring-inset ring-primary/0 group-hover:ring-primary/40 transition-all duration-500 pointer-events-none" />
+
+          {/* Métadonnées + bouton close */}
+          <div className="absolute bottom-0 inset-x-0 p-5 flex items-end justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-foreground truncate">
+                {preview.name}
+              </p>
+              <div className="mt-1.5 flex items-center gap-2.5 text-[10px] font-mono uppercase tracking-[0.15em] text-muted-foreground">
+                <span data-tabular>{preview.size}</span>
+                {preview.megapixels !== undefined && (
+                  <>
+                    <span className="text-primary/50">·</span>
+                    <m.span
+                      data-tabular
+                      initial={{ opacity: 0, x: -6 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ type: "spring", stiffness: 300, damping: 24 }}
+                      className="text-primary"
+                    >
+                      {preview.megapixels.toFixed(1)} MP
+                    </m.span>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <m.button
+              onClick={(e) => {
+                e.stopPropagation();
+                clearPreview();
+              }}
+              whileHover={{ scale: 1.08 }}
+              whileTap={{ scale: 0.92 }}
+              className="shrink-0 p-2 rounded-lg bg-white/10 hover:bg-destructive text-white/80 hover:text-white backdrop-blur-sm transition-colors"
+              aria-label="Retirer l'image"
+            >
+              <X className="w-4 h-4" />
+            </m.button>
+          </div>
+        </m.div>
+      ) : (
+        <m.div
+          key="dropzone"
+          initial={{ opacity: 0, scale: 0.98 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.98 }}
+          transition={{ type: "spring", stiffness: 280, damping: 26 }}
+        >
+          <div
+            {...getRootProps()}
+            className={cn(
+              "relative rounded-2xl border-2 border-dashed cursor-pointer overflow-hidden",
+              "transition-all duration-500",
+              isDragActive
+                ? "border-primary bg-primary/5 glow-md"
+                : "border-border/70 hover:border-border magnetic-pulse",
+              disabled && "opacity-50 cursor-not-allowed pointer-events-none",
+            )}
+          >
+            <input {...getInputProps()} />
+
+            {/* Grille diagonale subtile en arrière-plan — signature tech */}
+            <div
+              className="absolute inset-0 opacity-[0.04] pointer-events-none"
+              style={{
+                backgroundImage:
+                  "linear-gradient(45deg, transparent 48%, #1436de 49%, #1436de 51%, transparent 52%)",
+                backgroundSize: "28px 28px",
+              }}
+            />
+
+            <div className="relative flex flex-col items-center justify-center py-24 px-6">
+              <m.div
+                animate={
+                  isDragActive
+                    ? {
+                        scale: [1, 1.08, 1],
+                        rotate: [0, 2, -2, 0],
+                      }
+                    : { scale: 1, rotate: 0 }
+                }
+                transition={{
+                  duration: 1.6,
+                  repeat: isDragActive ? Infinity : 0,
+                  ease: "easeInOut",
+                }}
+                className={cn(
+                  "w-16 h-16 rounded-2xl flex items-center justify-center mb-7 transition-colors duration-300",
+                  isDragActive
+                    ? "bg-primary/20 text-primary glow-pulse"
+                    : "bg-card border border-border text-muted-foreground",
+                )}
+              >
+                {isDragActive ? (
+                  <ImageIcon className="w-7 h-7" strokeWidth={1.5} />
+                ) : (
+                  <Upload className="w-7 h-7" strokeWidth={1.5} />
+                )}
+              </m.div>
+
+              <p className="font-display font-light text-2xl lg:text-3xl text-foreground text-center leading-tight">
+                {isDragActive ? "Déposer l'image" : "Glisser une image"}
+              </p>
+              <p className="mt-3 text-[10px] uppercase tracking-[0.22em] text-muted-foreground font-sans">
+                PNG · JPEG · WebP · TIFF · max {MAX_FILE_SIZE_MB} Mo
+              </p>
+            </div>
+          </div>
+        </m.div>
+      )}
+    </AnimatePresence>
   );
 }

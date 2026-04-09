@@ -87,6 +87,9 @@ def get_secrets() -> SecretsBackend:
 
         return InfisicalSecretsBackend(
             token=settings.INFISICAL_TOKEN.get_secret_value(),
+            project_id=settings.INFISICAL_PROJECT_ID,
+            environment=settings.INFISICAL_ENVIRONMENT,
+            api_url=settings.INFISICAL_API_URL,
         )
 
     # settings.SECRETS_BACKEND == "vault"
@@ -95,6 +98,8 @@ def get_secrets() -> SecretsBackend:
     return VaultSecretsBackend(
         addr=settings.VAULT_ADDR,
         token=settings.VAULT_TOKEN.get_secret_value(),
+        mount_path=settings.VAULT_MOUNT_PATH,
+        kv_version=settings.VAULT_KV_VERSION,
     )
 
 

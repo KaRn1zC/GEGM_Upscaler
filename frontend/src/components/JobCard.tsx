@@ -1,3 +1,4 @@
+import { m, AnimatePresence } from "motion/react";
 import {
   CheckCircle2,
   Clock,
@@ -6,6 +7,7 @@ import {
   XCircle,
   Zap,
   Ban,
+  Sparkles,
 } from "lucide-react";
 import type { JobResponse } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -18,39 +20,49 @@ interface JobCardProps {
   onCompare?: (job: JobResponse) => void;
 }
 
-const STATUS_CONFIG: Record<
-  string,
-  { icon: typeof Clock; color: string; barColor: string }
-> = {
+interface StatusConfig {
+  icon: typeof Clock;
+  color: string;
+  barColor: string;
+  glow: boolean;
+}
+
+const STATUS_CONFIG: Record<string, StatusConfig> = {
   pending: {
     icon: Clock,
     color: "text-muted-foreground",
     barColor: "bg-muted-foreground",
+    glow: false,
   },
   queued: {
     icon: Clock,
     color: "text-warning",
     barColor: "bg-warning",
+    glow: false,
   },
   processing: {
     icon: Loader2,
     color: "text-primary",
     barColor: "bg-primary",
+    glow: true,
   },
   completed: {
     icon: CheckCircle2,
     color: "text-success",
     barColor: "bg-success",
+    glow: false,
   },
   failed: {
     icon: XCircle,
     color: "text-destructive",
     barColor: "bg-destructive",
+    glow: false,
   },
   cancelled: {
     icon: Ban,
     color: "text-muted-foreground",
     barColor: "bg-muted-foreground",
+    glow: false,
   },
 };
 
@@ -58,112 +70,166 @@ export function JobCard({ job, onDownload, onCancel, onCompare }: JobCardProps) 
   const config = STATUS_CONFIG[job.status] ?? STATUS_CONFIG.pending;
   const Icon = config.icon;
   const isActive = job.status === "processing" || job.status === "queued";
+  const isProcessing = job.status === "processing";
   const isComplete = job.status === "completed";
+  const isFailed = job.status === "failed";
   const pct = Math.round(job.progress * 100);
 
   return (
-    <div
+    <m.div
+      layout
+      whileHover={{ y: -2, scale: 1.003 }}
+      transition={{ type: "spring", stiffness: 400, damping: 30 }}
       className={cn(
-        "group rounded-xl border bg-card p-4 transition-all duration-200",
-        isActive
-          ? "border-primary/30 shadow-[0_0_20px_rgba(99,102,241,0.06)]"
-          : "border-border hover:border-border/80",
+        "group relative rounded-xl border bg-card p-5 overflow-hidden transition-colors duration-500",
+        isProcessing
+          ? "border-primary/40 glow-pulse"
+          : isComplete
+            ? "border-success/25 hover:border-success/40"
+            : isFailed
+              ? "border-destructive/30"
+              : "border-border hover:border-border/80",
       )}
     >
-      {/* En-tête : statut + dimensions */}
-      <div className="flex items-start justify-between mb-3">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <Icon
-            className={cn(
-              "w-4 h-4 shrink-0",
-              config.color,
-              job.status === "processing" && "animate-spin",
-            )}
-          />
+      {/* Bordure intérieure bleu électrique très subtile sur hover */}
+      <div
+        className={cn(
+          "absolute inset-0 rounded-xl ring-1 ring-inset pointer-events-none transition-all duration-500",
+          isProcessing ? "ring-primary/20" : "ring-transparent group-hover:ring-primary/10",
+        )}
+      />
+
+      {/* En-tête */}
+      <div className="relative flex items-start justify-between mb-3.5 gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <m.div
+            animate={isProcessing ? { rotate: 360 } : { rotate: 0 }}
+            transition={
+              isProcessing
+                ? { repeat: Infinity, duration: 2, ease: "linear" }
+                : { duration: 0.3 }
+            }
+            className={cn("shrink-0", config.color)}
+          >
+            <Icon className="w-4 h-4" strokeWidth={1.8} />
+          </m.div>
           <div className="min-w-0">
             <p className="text-sm font-medium text-foreground truncate">
               {JOB_STATUS_LABELS[job.status] ?? job.status}
             </p>
-            <p className="text-xs text-muted-foreground">
-              {job.input_width}&times;{job.input_height} &rarr; {job.scale_factor}&times;
+            <p
+              data-tabular
+              className="mt-0.5 text-[10px] font-mono uppercase tracking-[0.1em] text-muted-foreground"
+            >
+              {job.input_width}×{job.input_height}{" "}
+              <span className="text-primary/70 mx-0.5">→</span> {job.scale_factor}×
               {job.output_width && job.output_height && (
-                <span className="text-foreground/70">
+                <span className="text-foreground/60">
                   {" "}
-                  = {job.output_width}&times;{job.output_height}
+                  = {job.output_width}×{job.output_height}
                 </span>
               )}
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-1 shrink-0">
-          <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider px-1.5 py-0.5 rounded bg-muted">
+        <div className="flex items-center gap-1.5 shrink-0">
+          <span className="flex items-center gap-1 text-[9px] font-mono font-medium uppercase tracking-[0.1em] text-muted-foreground px-2 py-1 rounded-md bg-muted border border-border">
+            <Sparkles className="w-2.5 h-2.5" strokeWidth={2} />
             {job.model_name}
           </span>
           {job.gpu_backend && (
-            <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider px-1.5 py-0.5 rounded bg-muted flex items-center gap-1">
-              <Zap className="w-2.5 h-2.5" />
+            <span className="flex items-center gap-1 text-[9px] font-mono font-medium uppercase tracking-[0.1em] text-muted-foreground px-2 py-1 rounded-md bg-muted border border-border">
+              <Zap className="w-2.5 h-2.5" strokeWidth={2} />
               {job.gpu_backend}
             </span>
           )}
         </div>
       </div>
 
-      {/* Barre de progression */}
+      {/* Barre de progression liquide avec shimmer */}
       {(isActive || isComplete) && (
-        <div className="mb-3">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-xs text-muted-foreground">{pct}%</span>
-          </div>
-          <div className="h-1 rounded-full bg-muted overflow-hidden">
-            <div
+        <div className="relative mb-3.5">
+          <div className="flex items-center justify-between mb-1.5">
+            <span
+              data-tabular
               className={cn(
-                "h-full rounded-full transition-all duration-500 ease-out",
-                config.barColor,
-                isActive && "animate-pulse",
+                "text-[10px] font-mono font-medium",
+                isComplete ? "text-success" : "text-primary",
               )}
-              style={{ width: `${pct}%` }}
+            >
+              {pct}%
+            </span>
+          </div>
+          <div className="relative h-[3px] rounded-full bg-muted overflow-hidden">
+            <m.div
+              className={cn("absolute inset-y-0 left-0 rounded-full", config.barColor)}
+              initial={{ width: 0 }}
+              animate={{ width: `${pct}%` }}
+              transition={{ type: "spring", stiffness: 180, damping: 30 }}
             />
+            {isProcessing && (
+              <div className="absolute inset-0 shimmer rounded-full pointer-events-none" />
+            )}
           </div>
         </div>
       )}
 
       {/* Erreur */}
-      {job.error_message && (
-        <p className="text-xs text-destructive/80 bg-destructive/5 rounded-lg px-3 py-2 mb-3">
-          {job.error_message}
-        </p>
-      )}
+      <AnimatePresence>
+        {job.error_message && (
+          <m.p
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="text-[11px] text-destructive/85 bg-destructive/5 border border-destructive/20 rounded-lg px-3 py-2 mb-3 font-mono leading-relaxed"
+          >
+            {job.error_message}
+          </m.p>
+        )}
+      </AnimatePresence>
 
       {/* Actions */}
       <div className="flex items-center gap-2">
         {isComplete && onCompare && (
-          <button
+          <m.button
             onClick={() => onCompare(job)}
-            className="text-xs px-3 py-1.5 rounded-lg bg-primary/10 text-primary hover:bg-primary/15 transition-colors"
+            whileHover={{ scale: 1.03, y: -1 }}
+            whileTap={{ scale: 0.96 }}
+            transition={{ type: "spring", stiffness: 400, damping: 25 }}
+            className="text-[11px] font-medium px-3.5 py-1.5 rounded-lg bg-primary/10 text-primary hover:bg-primary/15 border border-primary/30 hover:glow-sm transition-all"
           >
             Comparer
-          </button>
+          </m.button>
         )}
         {isComplete && onDownload && (
-          <button
+          <m.button
             onClick={() => onDownload(job)}
-            className="text-xs px-3 py-1.5 rounded-lg bg-muted text-foreground hover:bg-muted/80 transition-colors flex items-center gap-1.5"
+            whileHover={{ scale: 1.03, y: -1 }}
+            whileTap={{ scale: 0.96 }}
+            transition={{ type: "spring", stiffness: 400, damping: 25 }}
+            className="flex items-center gap-1.5 text-[11px] font-medium px-3.5 py-1.5 rounded-lg bg-card border border-border text-foreground hover:border-primary/40 transition-colors"
           >
-            <Download className="w-3 h-3" />
+            <Download className="w-3 h-3" strokeWidth={2} />
             Télécharger
-          </button>
+          </m.button>
         )}
         {isActive && onCancel && (
-          <button
+          <m.button
             onClick={() => onCancel(job)}
-            className="text-xs px-3 py-1.5 rounded-lg bg-muted text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+            whileHover={{ scale: 1.03 }}
+            whileTap={{ scale: 0.96 }}
+            transition={{ type: "spring", stiffness: 400, damping: 25 }}
+            className="text-[11px] font-medium px-3.5 py-1.5 rounded-lg bg-card border border-border text-muted-foreground hover:text-destructive hover:border-destructive/40 transition-colors"
           >
             Annuler
-          </button>
+          </m.button>
         )}
         {!isActive && !isComplete && (
-          <span className="text-xs text-muted-foreground">
+          <span
+            data-tabular
+            className="text-[10px] font-mono uppercase tracking-[0.1em] text-muted-foreground"
+          >
             {new Date(job.created_at).toLocaleDateString("fr-FR", {
               day: "numeric",
               month: "short",
@@ -173,6 +239,6 @@ export function JobCard({ job, onDownload, onCancel, onCompare }: JobCardProps) 
           </span>
         )}
       </div>
-    </div>
+    </m.div>
   );
 }

@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
+import { m } from "motion/react";
 import { Check, Loader2, Server, User, Wrench, X } from "lucide-react";
 import { getCurrentUser, getReadiness } from "@/lib/api";
 import type { HealthResponse, UserResponse } from "@/lib/api";
 import { MODEL_OPTIONS, SCALE_FACTORS, type ScaleFactor } from "@/lib/constants";
 import { usePreferences } from "@/hooks/usePreferences";
 import { cn } from "@/lib/utils";
+
+const EASE_OUT_EXPO = [0.22, 1, 0.36, 1] as const;
 
 export function SettingsPage() {
   const { preferences, updatePreference, resetPreferences } = usePreferences();
@@ -38,14 +41,25 @@ export function SettingsPage() {
   }, []);
 
   return (
-    <div className="flex-1 p-6 lg:p-10 max-w-3xl mx-auto w-full">
-      {/* En-tête */}
-      <div className="mb-8">
-        <h1 className="text-2xl font-semibold text-foreground tracking-tight">Paramètres</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Préférences utilisateur et état du système
-        </p>
-      </div>
+    <div className="relative flex-1 overflow-hidden">
+      {/* Halo subtil en haut */}
+      <div className="absolute inset-x-0 top-0 h-80 bg-gradient-to-b from-primary/[0.06] to-transparent pointer-events-none" />
+
+      <div className="relative z-10 p-6 lg:p-12 max-w-3xl mx-auto w-full">
+        {/* En-tête */}
+        <m.header
+          initial={{ opacity: 0, y: 24 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.9, ease: EASE_OUT_EXPO }}
+          className="mb-10"
+        >
+          <h1 className="font-display font-light text-5xl lg:text-7xl tracking-tight text-foreground leading-[0.95]">
+            Paramètres
+          </h1>
+          <p className="mt-4 text-[11px] uppercase tracking-[0.3em] text-muted-foreground font-sans">
+            Préférences utilisateur et état du système
+          </p>
+        </m.header>
 
       {/* Utilisateur */}
       <Section icon={User} title="Compte">
@@ -161,14 +175,15 @@ export function SettingsPage() {
         )}
       </Section>
 
-      {/* Infos build */}
-      <Section icon={Wrench} title="À propos">
-        <div className="space-y-2 text-sm">
-          <Row label="Version" value="0.1.0" mono />
-          <Row label="Modèle SR" value="DRCT-L (fallback HAT-L)" />
-          <Row label="Stack" value="FastAPI · React 19 · Tauri 2" muted />
-        </div>
-      </Section>
+        {/* Infos build */}
+        <Section icon={Wrench} title="À propos">
+          <div className="space-y-2 text-sm">
+            <Row label="Version" value="0.1.0" mono />
+            <Row label="Modèle SR" value="DRCT-L (fallback HAT-L)" />
+            <Row label="Stack" value="FastAPI · React 19 · Tauri 2" muted />
+          </div>
+        </Section>
+      </div>
     </div>
   );
 }

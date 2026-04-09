@@ -14,9 +14,15 @@ beforeEach(() => {
 
 describe("DropZone", () => {
   it("should render initial state with instructions", () => {
-    render(<DropZone onFileAccepted={() => {}} />);
+    const { container } = render(<DropZone onFileAccepted={() => {}} />);
     expect(screen.getByText(/Glisser une image/)).toBeInTheDocument();
-    expect(screen.getByText(/PNG, JPEG, WebP, TIFF/)).toBeInTheDocument();
+    // Le texte des formats est séparé par des middots dans la nouvelle charte,
+    // on vérifie simplement que chaque format est présent dans le même nœud.
+    const formats = container.textContent ?? "";
+    expect(formats).toMatch(/PNG/);
+    expect(formats).toMatch(/JPEG/);
+    expect(formats).toMatch(/WebP/);
+    expect(formats).toMatch(/TIFF/);
   });
 
   it("should accept a valid image file via click", async () => {
@@ -115,8 +121,9 @@ describe("DropZone", () => {
   });
 
   it("should show max file size in the placeholder", () => {
-    render(<DropZone onFileAccepted={vi.fn()} />);
-    // Default MAX_FILE_SIZE_MB = 200.
-    expect(screen.getByText(/200 Mo max/)).toBeInTheDocument();
+    const { container } = render(<DropZone onFileAccepted={vi.fn()} />);
+    // Default MAX_FILE_SIZE_MB = 200. Le texte est désormais
+    // formulé "max 200 Mo" dans la nouvelle charte.
+    expect(container.textContent).toMatch(/max\s*200\s*Mo/);
   });
 });

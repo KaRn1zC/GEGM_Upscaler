@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { m, AnimatePresence } from "motion/react";
 import { Settings2 } from "lucide-react";
 import { DropZone } from "@/components/DropZone";
 import { JobCard } from "@/components/JobCard";
@@ -10,13 +11,24 @@ import { cn } from "@/lib/utils";
 import { MODEL_OPTIONS, SCALE_FACTORS, type ScaleFactor } from "@/lib/constants";
 import type { JobResponse } from "@/lib/api";
 
+const EASE_OUT_EXPO = [0.22, 1, 0.36, 1] as const;
+
 export function UpscalePage() {
   const { isUploading, progress: uploadProgress, upload } = useUpload();
-  const { jobs, fetchJobs, submitJob, updateJobProgress, updateJobCompleted, updateJobFailed, removeJob } =
-    useJobStore();
+  const {
+    jobs,
+    fetchJobs,
+    submitJob,
+    updateJobProgress,
+    updateJobCompleted,
+    updateJobFailed,
+    removeJob,
+  } = useJobStore();
 
   const [scaleFactor, setScaleFactor] = useState<ScaleFactor>(4);
-  const [modelName, setModelName] = useState(MODEL_OPTIONS[0].value);
+  const [modelName, setModelName] = useState<"drct-l" | "hat-l">(
+    MODEL_OPTIONS[0].value,
+  );
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [compareJob, setCompareJob] = useState<JobResponse | null>(null);
   const [showSettings, setShowSettings] = useState(false);
@@ -62,146 +74,267 @@ export function UpscalePage() {
   );
 
   const activeJobs = jobs.filter(
-    (j) => j.status === "processing" || j.status === "queued" || j.status === "pending",
+    (j) =>
+      j.status === "processing" ||
+      j.status === "queued" ||
+      j.status === "pending",
   );
-  const recentJobs = jobs.filter(
-    (j) => j.status === "completed" || j.status === "failed" || j.status === "cancelled",
-  ).slice(0, 5);
+  const recentJobs = jobs
+    .filter(
+      (j) =>
+        j.status === "completed" ||
+        j.status === "failed" ||
+        j.status === "cancelled",
+    )
+    .slice(0, 5);
 
   return (
-    <div className="flex-1 p-6 lg:p-10 max-w-4xl mx-auto w-full">
-      {/* En-tête */}
-      <div className="mb-8">
-        <h1 className="text-2xl font-semibold text-foreground tracking-tight">Upscaler</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Super-résolution IA — glisser une image pour commencer
-        </p>
-      </div>
+    <div className="relative flex-1 overflow-hidden">
+      {/* Background mesh animé — halo signature GEGM */}
+      <div className="absolute inset-0 gradient-mesh opacity-50 pointer-events-none" />
+      <div className="absolute inset-x-0 top-0 h-96 bg-gradient-to-b from-primary/[0.08] to-transparent pointer-events-none" />
 
-      {/* Comparaison avant/après */}
-      {compareJob && (
-        <div className="mb-8">
-          <CompareSlider
-            beforeSrc={`/api/uploads/${compareJob.input_key}`}
-            afterSrc={`/api/jobs/${compareJob.id}/download`}
-            onClose={() => setCompareJob(null)}
-          />
-        </div>
-      )}
+      {/* Contenu principal */}
+      <div className="relative z-10 p-6 lg:p-12 max-w-4xl mx-auto w-full">
+        {/* En-tête — contraste typo extrême Fraunces × Space Grotesk */}
+        <m.header
+          initial={{ opacity: 0, y: 24 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.9, ease: EASE_OUT_EXPO }}
+          className="mb-12"
+        >
+          <h1 className="font-display font-light text-5xl lg:text-7xl tracking-tight text-foreground leading-[0.95]">
+            Upscaler
+          </h1>
+          <p className="mt-4 text-[11px] uppercase tracking-[0.3em] text-muted-foreground font-sans">
+            Super-résolution IA — Glisser une image pour commencer
+          </p>
+        </m.header>
 
-      {/* Zone de drop + paramètres */}
-      <div className="mb-8">
-        <DropZone onFileAccepted={handleFile} disabled={isUploading} />
-
-        {/* Barre d'upload */}
-        {isUploading && (
-          <div className="mt-3">
-            <div className="h-1 rounded-full bg-muted overflow-hidden">
-              <div
-                className="h-full rounded-full bg-primary transition-all duration-300"
-                style={{ width: `${uploadProgress}%` }}
+        {/* Comparaison avant/après */}
+        <AnimatePresence mode="wait">
+          {compareJob && (
+            <m.div
+              key="compare"
+              initial={{ opacity: 0, scale: 0.96, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: -20 }}
+              transition={{ type: "spring", stiffness: 260, damping: 26 }}
+              className="mb-10"
+            >
+              <CompareSlider
+                beforeSrc={`/api/uploads/${compareJob.input_key}`}
+                afterSrc={`/api/jobs/${compareJob.id}/download`}
+                onClose={() => setCompareJob(null)}
               />
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">Upload {uploadProgress}%</p>
-          </div>
-        )}
+            </m.div>
+          )}
+        </AnimatePresence>
 
-        {/* Paramètres */}
-        <div className="mt-4 flex items-center gap-3">
-          <button
-            onClick={() => setShowSettings((s) => !s)}
-            className={cn(
-              "flex items-center gap-2 text-xs px-3 py-2 rounded-lg transition-colors",
-              showSettings
-                ? "bg-primary/10 text-primary"
-                : "bg-muted text-muted-foreground hover:text-foreground",
-            )}
-          >
-            <Settings2 className="w-3.5 h-3.5" />
-            Paramètres
-          </button>
+        {/* Zone de drop + paramètres */}
+        <m.section
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8, delay: 0.1, ease: EASE_OUT_EXPO }}
+          className="mb-12"
+        >
+          <DropZone onFileAccepted={handleFile} disabled={isUploading} />
 
-          {/* Sélecteur de facteur toujours visible */}
-          <div className="flex items-center gap-1 bg-muted rounded-lg p-0.5">
-            {SCALE_FACTORS.map((f) => (
-              <button
-                key={f}
-                onClick={() => setScaleFactor(f)}
-                className={cn(
-                  "text-xs px-3 py-1.5 rounded-md font-medium transition-all",
-                  scaleFactor === f
-                    ? "bg-primary text-primary-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
+          {/* Barre d'upload avec shimmer */}
+          <AnimatePresence>
+            {isUploading && (
+              <m.div
+                key="upload-bar"
+                initial={{ opacity: 0, height: 0, marginTop: 0 }}
+                animate={{ opacity: 1, height: "auto", marginTop: 16 }}
+                exit={{ opacity: 0, height: 0, marginTop: 0 }}
+                transition={{ duration: 0.4, ease: EASE_OUT_EXPO }}
+                className="overflow-hidden"
               >
-                {f}&times;
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Panneau paramètres étendu */}
-        {showSettings && (
-          <div className="mt-3 p-4 rounded-xl border border-border bg-card">
-            <label className="block text-xs text-muted-foreground mb-2">Modèle</label>
-            <div className="flex gap-2">
-              {MODEL_OPTIONS.map((m) => (
-                <button
-                  key={m.value}
-                  onClick={() => setModelName(m.value)}
-                  className={cn(
-                    "text-xs px-3 py-2 rounded-lg border transition-all",
-                    modelName === m.value
-                      ? "border-primary/50 bg-primary/5 text-foreground"
-                      : "border-border text-muted-foreground hover:text-foreground hover:border-border/80",
-                  )}
+                <div className="relative h-[3px] rounded-full bg-muted overflow-hidden">
+                  <m.div
+                    className="absolute inset-y-0 left-0 rounded-full bg-primary"
+                    initial={{ width: 0 }}
+                    animate={{ width: `${uploadProgress}%` }}
+                    transition={{ type: "spring", stiffness: 200, damping: 30 }}
+                  />
+                  <div className="absolute inset-0 shimmer rounded-full" />
+                </div>
+                <p
+                  data-tabular
+                  className="mt-2 text-[10px] uppercase tracking-[0.2em] text-muted-foreground font-mono"
                 >
-                  {m.label}
-                </button>
+                  Upload {uploadProgress}%
+                </p>
+              </m.div>
+            )}
+          </AnimatePresence>
+
+          {/* Paramètres */}
+          <div className="mt-6 flex items-center gap-3 flex-wrap">
+            <m.button
+              onClick={() => setShowSettings((s) => !s)}
+              whileHover={{ scale: 1.02, y: -1 }}
+              whileTap={{ scale: 0.97 }}
+              transition={{ type: "spring", stiffness: 400, damping: 25 }}
+              className={cn(
+                "flex items-center gap-2 text-xs px-4 py-2 rounded-lg font-medium transition-colors border",
+                showSettings
+                  ? "bg-primary/10 text-primary border-primary/40"
+                  : "bg-card text-muted-foreground hover:text-foreground border-border",
+              )}
+            >
+              <Settings2 className="w-3.5 h-3.5" />
+              Paramètres
+            </m.button>
+
+            {/* Sélecteur de facteur avec indicateur glissant */}
+            <div className="relative flex items-center gap-1 bg-card border border-border rounded-lg p-1">
+              {SCALE_FACTORS.map((f) => (
+                <m.button
+                  key={f}
+                  onClick={() => setScaleFactor(f)}
+                  whileTap={{ scale: 0.93 }}
+                  className="relative z-10 text-xs px-4 py-1.5 rounded-md font-semibold font-mono"
+                >
+                  {scaleFactor === f && (
+                    <m.div
+                      layoutId="scale-indicator"
+                      className="absolute inset-0 bg-primary rounded-md glow-sm"
+                      transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                    />
+                  )}
+                  <span
+                    data-tabular
+                    className={cn(
+                      "relative",
+                      scaleFactor === f
+                        ? "text-primary-foreground"
+                        : "text-muted-foreground hover:text-foreground transition-colors",
+                    )}
+                  >
+                    {f}×
+                  </span>
+                </m.button>
               ))}
             </div>
           </div>
+
+          {/* Panneau paramètres étendu */}
+          <AnimatePresence initial={false}>
+            {showSettings && (
+              <m.div
+                key="settings-panel"
+                initial={{ opacity: 0, height: 0, marginTop: 0 }}
+                animate={{ opacity: 1, height: "auto", marginTop: 12 }}
+                exit={{ opacity: 0, height: 0, marginTop: 0 }}
+                transition={{ type: "spring", stiffness: 260, damping: 28 }}
+                className="overflow-hidden"
+              >
+                <div className="p-5 rounded-xl border border-border bg-card">
+                  <label className="block text-[10px] font-sans uppercase tracking-[0.22em] text-muted-foreground mb-3">
+                    Modèle de super-résolution
+                  </label>
+                  <div className="flex gap-2">
+                    {MODEL_OPTIONS.map((option) => (
+                      <m.button
+                        key={option.value}
+                        onClick={() => setModelName(option.value)}
+                        whileHover={{ y: -1 }}
+                        whileTap={{ scale: 0.96 }}
+                        transition={{ type: "spring", stiffness: 400, damping: 25 }}
+                        className={cn(
+                          "text-xs px-4 py-2.5 rounded-lg border font-medium transition-colors",
+                          modelName === option.value
+                            ? "border-primary/60 bg-primary/10 text-foreground glow-sm"
+                            : "border-border text-muted-foreground hover:text-foreground",
+                        )}
+                      >
+                        {option.label}
+                      </m.button>
+                    ))}
+                  </div>
+                </div>
+              </m.div>
+            )}
+          </AnimatePresence>
+        </m.section>
+
+        {/* Jobs actifs */}
+        <AnimatePresence>
+          {activeJobs.length > 0 && (
+            <m.section
+              key="active-section"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.6, delay: 0.15, ease: EASE_OUT_EXPO }}
+              className="mb-10"
+            >
+              <h2 className="flex items-center gap-2 text-[10px] font-sans uppercase tracking-[0.28em] text-muted-foreground mb-4">
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="absolute inline-flex h-full w-full rounded-full bg-primary opacity-60 animate-ping" />
+                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-primary" />
+                </span>
+                En cours
+              </h2>
+              <div className="space-y-3">
+                {activeJobs.map((job, i) => (
+                  <m.div
+                    key={job.id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{
+                      type: "spring",
+                      stiffness: 260,
+                      damping: 24,
+                      delay: i * 0.06,
+                    }}
+                  >
+                    <JobCard job={job} onCancel={(j) => void removeJob(j.id)} />
+                  </m.div>
+                ))}
+              </div>
+            </m.section>
+          )}
+        </AnimatePresence>
+
+        {/* Jobs récents */}
+        {recentJobs.length > 0 && (
+          <m.section
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.7, delay: 0.25, ease: EASE_OUT_EXPO }}
+          >
+            <h2 className="text-[10px] font-sans uppercase tracking-[0.28em] text-muted-foreground mb-4">
+              Récents
+            </h2>
+            <div className="space-y-3">
+              {recentJobs.map((job, i) => (
+                <m.div
+                  key={job.id}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{
+                    type: "spring",
+                    stiffness: 260,
+                    damping: 24,
+                    delay: i * 0.05,
+                  }}
+                >
+                  <JobCard
+                    job={job}
+                    onDownload={() =>
+                      window.open(`/api/jobs/${job.id}/download`, "_blank")
+                    }
+                    onCompare={() => setCompareJob(job)}
+                  />
+                </m.div>
+              ))}
+            </div>
+          </m.section>
         )}
       </div>
-
-      {/* Jobs actifs */}
-      {activeJobs.length > 0 && (
-        <section className="mb-8">
-          <h2 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">
-            En cours
-          </h2>
-          <div className="space-y-3">
-            {activeJobs.map((job) => (
-              <JobCard
-                key={job.id}
-                job={job}
-                onCancel={(j) => void removeJob(j.id)}
-              />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* Jobs récents */}
-      {recentJobs.length > 0 && (
-        <section>
-          <h2 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">
-            Récents
-          </h2>
-          <div className="space-y-3">
-            {recentJobs.map((job) => (
-              <JobCard
-                key={job.id}
-                job={job}
-                onDownload={() =>
-                  window.open(`/api/jobs/${job.id}/download`, "_blank")
-                }
-                onCompare={() => setCompareJob(job)}
-              />
-            ))}
-          </div>
-        </section>
-      )}
     </div>
   );
 }

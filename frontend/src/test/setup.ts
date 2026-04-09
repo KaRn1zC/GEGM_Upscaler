@@ -1,6 +1,65 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
-import { afterEach, beforeEach } from "vitest";
+import { afterEach, beforeEach, vi } from "vitest";
+
+// ──────────────────────────────────────────────────────────────
+// Polyfills jsdom — observers non fournis mais requis par Motion
+// (whileInView, layout animations) et certains composants Radix.
+// ──────────────────────────────────────────────────────────────
+
+class IntersectionObserverMock implements IntersectionObserver {
+  readonly root: Element | Document | null = null;
+  readonly rootMargin: string = "";
+  readonly scrollMargin: string = "";
+  readonly thresholds: readonly number[] = [];
+
+  constructor(
+    _callback: IntersectionObserverCallback,
+    _options?: IntersectionObserverInit,
+  ) {}
+
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+  takeRecords(): IntersectionObserverEntry[] {
+    return [];
+  }
+}
+
+class ResizeObserverMock implements ResizeObserver {
+  constructor(_callback: ResizeObserverCallback) {}
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+}
+
+Object.defineProperty(globalThis, "IntersectionObserver", {
+  value: IntersectionObserverMock,
+  writable: true,
+  configurable: true,
+});
+
+Object.defineProperty(globalThis, "ResizeObserver", {
+  value: ResizeObserverMock,
+  writable: true,
+  configurable: true,
+});
+
+// matchMedia — requis par certaines features Motion (prefers-reduced-motion).
+Object.defineProperty(globalThis, "matchMedia", {
+  value: vi.fn().mockImplementation((query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  })),
+  writable: true,
+  configurable: true,
+});
 
 // Polyfill localStorage — Vitest 4 + jsdom 29 expose un objet vide
 // sans les méthodes du Storage API, on le remplace par une Map interne.

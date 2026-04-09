@@ -1,86 +1,196 @@
-import { BrowserRouter, NavLink, Navigate, Route, Routes } from "react-router-dom";
+import {
+  BrowserRouter,
+  NavLink,
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+} from "react-router-dom";
+import { lazy, Suspense } from "react";
+import { LazyMotion, domMax, m, AnimatePresence } from "motion/react";
 import {
   ImageUp,
   Clock,
-  Sparkles,
   Layers,
   GalleryHorizontal,
   Settings,
+  Command as CommandIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useGlobalShortcuts } from "@/hooks/useGlobalShortcuts";
 import { UpscalePage } from "@/pages/UpscalePage";
 import { BatchPage } from "@/pages/BatchPage";
 import { GalleryPage } from "@/pages/GalleryPage";
 import { HistoryPage } from "@/pages/HistoryPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 
+// Code-split — la command palette (+ cmdk + radix-dialog) est chargée à
+// la demande dans son propre chunk, pas dans le bundle initial.
+const CommandPalette = lazy(() => import("@/components/CommandPalette"));
+
 const NAV_ITEMS = [
-  { to: "/upscale", label: "Upscaler", icon: ImageUp },
-  { to: "/batch", label: "Batch", icon: Layers },
-  { to: "/gallery", label: "Galerie", icon: GalleryHorizontal },
-  { to: "/history", label: "Historique", icon: Clock },
-  { to: "/settings", label: "Paramètres", icon: Settings },
+  { to: "/upscale", label: "Upscaler", icon: ImageUp, shortcut: "⌘1" },
+  { to: "/batch", label: "Batch", icon: Layers, shortcut: "⌘2" },
+  { to: "/gallery", label: "Galerie", icon: GalleryHorizontal, shortcut: "⌘3" },
+  { to: "/history", label: "Historique", icon: Clock, shortcut: "⌘4" },
+  { to: "/settings", label: "Paramètres", icon: Settings, shortcut: "⌘5" },
 ];
+
+const EASE_OUT_EXPO = [0.22, 1, 0.36, 1] as const;
 
 function Sidebar() {
   return (
-    <aside className="w-56 shrink-0 border-r border-border bg-card/50 flex flex-col">
-      {/* Logo */}
-      <div className="p-5 flex items-center gap-2.5">
-        <div className="w-8 h-8 rounded-lg bg-primary/15 flex items-center justify-center">
-          <Sparkles className="w-4 h-4 text-primary" />
-        </div>
-        <div>
-          <p className="text-sm font-semibold text-foreground leading-none">GEGM</p>
-          <p className="text-[10px] text-muted-foreground mt-0.5">Upscaler</p>
-        </div>
-      </div>
+    <aside className="relative w-60 shrink-0 border-r border-border bg-card/30 backdrop-blur-sm flex flex-col">
+      {/* Gradient subtil derrière le logo */}
+      <div className="absolute inset-x-0 top-0 h-48 bg-gradient-to-b from-primary/[0.08] to-transparent pointer-events-none" />
+
+      {/* Logo GEGM — Fraunces serif contraste extrême */}
+      <m.div
+        initial={{ opacity: 0, y: -12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.8, ease: EASE_OUT_EXPO }}
+        className="relative p-6 pb-5"
+      >
+        <h1 className="font-display font-light text-3xl text-foreground leading-none tracking-tight">
+          GEGM
+        </h1>
+        <p className="mt-1.5 text-[9px] font-sans uppercase tracking-[0.3em] text-muted-foreground">
+          Upscaler
+        </p>
+      </m.div>
+
+      {/* Séparateur fin */}
+      <div className="mx-6 h-px bg-border" />
 
       {/* Navigation */}
-      <nav className="flex-1 px-3 py-2 space-y-0.5">
-        {NAV_ITEMS.map(({ to, label, icon: Icon }) => (
-          <NavLink
+      <nav className="relative flex-1 px-3 py-5">
+        {NAV_ITEMS.map(({ to, label, icon: Icon, shortcut }, i) => (
+          <m.div
             key={to}
-            to={to}
-            className={({ isActive }) =>
-              cn(
-                "flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors",
-                isActive
-                  ? "bg-primary/10 text-primary font-medium"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
-              )
-            }
+            initial={{ opacity: 0, x: -8 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{
+              delay: 0.15 + i * 0.04,
+              duration: 0.5,
+              ease: EASE_OUT_EXPO,
+            }}
           >
-            <Icon className="w-4 h-4" />
-            {label}
-          </NavLink>
+            <NavLink to={to} end>
+              {({ isActive }) => (
+                <div
+                  className={cn(
+                    "relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors group",
+                    isActive
+                      ? "text-primary"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {/* Indicateur actif — glisse entre les items via layoutId */}
+                  {isActive && (
+                    <m.div
+                      layoutId="nav-indicator"
+                      className="absolute inset-0 bg-primary/10 border border-primary/30 rounded-lg glow-sm"
+                      transition={{
+                        type: "spring",
+                        stiffness: 400,
+                        damping: 32,
+                      }}
+                    />
+                  )}
+                  <Icon
+                    className="relative w-4 h-4 shrink-0"
+                    strokeWidth={1.8}
+                  />
+                  <span className="relative font-medium flex-1">{label}</span>
+                  <span
+                    className={cn(
+                      "relative text-[9px] font-mono opacity-0 group-hover:opacity-60 transition-opacity",
+                      isActive && "opacity-50",
+                    )}
+                  >
+                    {shortcut}
+                  </span>
+                </div>
+              )}
+            </NavLink>
+          </m.div>
         ))}
       </nav>
 
-      {/* Pied */}
-      <div className="p-4 border-t border-border">
-        <p className="text-[10px] text-muted-foreground/60 font-mono">v0.1.0</p>
-      </div>
+      {/* Hint palette + version */}
+      <m.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.5, duration: 0.6 }}
+        className="relative p-4 border-t border-border space-y-3"
+      >
+        <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-card/60 border border-border/60">
+          <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+            <CommandIcon className="w-3 h-3" strokeWidth={2} />
+            <span className="uppercase tracking-[0.15em]">Palette</span>
+          </div>
+          <kbd className="text-[9px] font-mono text-muted-foreground/70 px-1.5 py-0.5 rounded border border-border/60 bg-background/40">
+            ⌘K
+          </kbd>
+        </div>
+        <p
+          data-tabular
+          className="text-[9px] font-mono uppercase tracking-[0.2em] text-muted-foreground/60 px-1"
+        >
+          v0.1.0
+        </p>
+      </m.div>
     </aside>
+  );
+}
+
+/**
+ * Container des routes avec transitions fluides.
+ * Chaque changement de page déclenche un fade + slide vertical doux.
+ */
+function AnimatedRoutes() {
+  const location = useLocation();
+
+  // Active les raccourcis clavier globaux ⌘1..⌘5 / ⌘U / ⌘B.
+  useGlobalShortcuts();
+
+  return (
+    <AnimatePresence mode="wait" initial={false}>
+      <m.div
+        key={location.pathname}
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -8 }}
+        transition={{ duration: 0.32, ease: EASE_OUT_EXPO }}
+        className="h-full"
+      >
+        <Routes location={location}>
+          <Route path="/upscale" element={<UpscalePage />} />
+          <Route path="/batch" element={<BatchPage />} />
+          <Route path="/gallery" element={<GalleryPage />} />
+          <Route path="/history" element={<HistoryPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="*" element={<Navigate to="/upscale" replace />} />
+        </Routes>
+      </m.div>
+    </AnimatePresence>
   );
 }
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <div className="flex h-dvh overflow-hidden bg-background">
-        <Sidebar />
-        <main className="flex-1 overflow-y-auto">
-          <Routes>
-            <Route path="/upscale" element={<UpscalePage />} />
-            <Route path="/batch" element={<BatchPage />} />
-            <Route path="/gallery" element={<GalleryPage />} />
-            <Route path="/history" element={<HistoryPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
-            <Route path="*" element={<Navigate to="/upscale" replace />} />
-          </Routes>
-        </main>
-      </div>
-    </BrowserRouter>
+    <LazyMotion features={domMax} strict>
+      <BrowserRouter>
+        <div className="flex h-dvh overflow-hidden bg-background">
+          <Sidebar />
+          <main className="flex-1 overflow-y-auto relative">
+            <AnimatedRoutes />
+          </main>
+          <Suspense fallback={null}>
+            <CommandPalette />
+          </Suspense>
+        </div>
+      </BrowserRouter>
+    </LazyMotion>
   );
 }

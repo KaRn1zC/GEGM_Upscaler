@@ -61,9 +61,17 @@ class Settings(BaseSettings):
 
     # ── Secrets ──────────────────────────────────────────────────
     SECRETS_BACKEND: Literal["env", "infisical", "vault"] = "env"
+    # Infisical : un seul token suffit en SaaS, project_id et environment
+    # permettent de cibler un workspace et un env spécifiques.
     INFISICAL_TOKEN: SecretStr = SecretStr("")
+    INFISICAL_PROJECT_ID: str = ""
+    INFISICAL_ENVIRONMENT: str = "prod"
+    INFISICAL_API_URL: str = "https://app.infisical.com/api"
+    # Vault : addr + token + chemin du mount KV. KV v2 par défaut.
     VAULT_ADDR: str = ""
     VAULT_TOKEN: SecretStr = SecretStr("")
+    VAULT_MOUNT_PATH: str = "secret"
+    VAULT_KV_VERSION: Literal[1, 2] = 2
 
     @property
     def is_development(self) -> bool:

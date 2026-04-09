@@ -1,3 +1,4 @@
+import { m } from "motion/react";
 import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
 import { X, ZoomIn, ZoomOut, RotateCcw } from "lucide-react";
 
@@ -9,7 +10,16 @@ interface ZoomViewerProps {
 
 export function ZoomViewer({ imageUrl, title, onClose }: ZoomViewerProps) {
   return (
-    <div className="relative rounded-xl overflow-hidden border border-border bg-black">
+    <m.div
+      initial={{ opacity: 0, scale: 0.97 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.97 }}
+      transition={{ type: "spring", stiffness: 280, damping: 28 }}
+      className="relative rounded-2xl overflow-hidden border border-border bg-black group"
+    >
+      {/* Bordure intérieure au hover */}
+      <div className="absolute inset-0 rounded-2xl ring-1 ring-inset ring-primary/0 group-hover:ring-primary/25 transition-all duration-500 pointer-events-none z-30" />
+
       <TransformWrapper
         initialScale={1}
         minScale={0.5}
@@ -20,49 +30,75 @@ export function ZoomViewer({ imageUrl, title, onClose }: ZoomViewerProps) {
       >
         {({ zoomIn, zoomOut, resetTransform }) => (
           <>
-            {/* Barre d'outils flottante */}
-            <div className="absolute top-3 right-3 z-10 flex items-center gap-1 p-1 rounded-lg bg-black/60 backdrop-blur-sm">
-              <button
+            {/* Toolbar flottante */}
+            <m.div
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.15, duration: 0.4 }}
+              className="absolute top-4 right-4 z-20 flex items-center gap-0.5 p-1 rounded-lg bg-black/70 backdrop-blur-sm border border-white/10"
+            >
+              <m.button
                 onClick={() => zoomIn()}
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
+                transition={{ type: "spring", stiffness: 400, damping: 25 }}
                 className="p-1.5 rounded-md text-white/80 hover:text-white hover:bg-white/10 transition-colors"
                 title="Zoom avant"
               >
-                <ZoomIn className="w-3.5 h-3.5" />
-              </button>
-              <button
+                <ZoomIn className="w-3.5 h-3.5" strokeWidth={2} />
+              </m.button>
+              <m.button
                 onClick={() => zoomOut()}
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
+                transition={{ type: "spring", stiffness: 400, damping: 25 }}
                 className="p-1.5 rounded-md text-white/80 hover:text-white hover:bg-white/10 transition-colors"
                 title="Zoom arrière"
               >
-                <ZoomOut className="w-3.5 h-3.5" />
-              </button>
-              <button
+                <ZoomOut className="w-3.5 h-3.5" strokeWidth={2} />
+              </m.button>
+              <m.button
                 onClick={() => resetTransform()}
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
+                transition={{ type: "spring", stiffness: 400, damping: 25 }}
                 className="p-1.5 rounded-md text-white/80 hover:text-white hover:bg-white/10 transition-colors"
                 title="Réinitialiser"
               >
-                <RotateCcw className="w-3.5 h-3.5" />
-              </button>
+                <RotateCcw className="w-3.5 h-3.5" strokeWidth={2} />
+              </m.button>
               {onClose && (
                 <>
-                  <div className="w-px h-4 bg-white/20 mx-0.5" />
-                  <button
+                  <div className="w-px h-4 bg-white/20 mx-1" />
+                  <m.button
                     onClick={onClose}
-                    className="p-1.5 rounded-md text-white/80 hover:text-white hover:bg-white/10 transition-colors"
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
+                    transition={{ type: "spring", stiffness: 400, damping: 25 }}
+                    className="p-1.5 rounded-md text-white/80 hover:text-white hover:bg-destructive/80 transition-colors"
+                    aria-label="Fermer le viewer"
                   >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
+                    <X className="w-3.5 h-3.5" strokeWidth={2} />
+                  </m.button>
                 </>
               )}
-            </div>
+            </m.div>
 
             {/* Titre flottant */}
             {title && (
-              <div className="absolute top-3 left-3 z-10">
-                <span className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded-md bg-black/60 text-white/80 backdrop-blur-sm">
+              <m.div
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.2, duration: 0.4 }}
+                className="absolute top-4 left-4 z-20"
+              >
+                <span
+                  data-tabular
+                  className="text-[10px] font-mono uppercase tracking-[0.2em] px-2.5 py-1 rounded-md bg-black/70 text-white/85 backdrop-blur-sm border border-white/10"
+                >
                   {title}
                 </span>
-              </div>
+              </m.div>
             )}
 
             <TransformComponent
@@ -86,10 +122,17 @@ export function ZoomViewer({ imageUrl, title, onClose }: ZoomViewerProps) {
         )}
       </TransformWrapper>
 
-      {/* Indication d'usage */}
-      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-md bg-black/60 text-[10px] font-mono text-white/60 backdrop-blur-sm">
-        Molette : zoom · Glisser : pan · Double-clic : zoom avant
-      </div>
-    </div>
+      {/* Helper text en bas */}
+      <m.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.3, duration: 0.4 }}
+        className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20"
+      >
+        <span className="text-[9px] font-mono uppercase tracking-[0.2em] px-2.5 py-1 rounded-md bg-black/70 text-white/55 backdrop-blur-sm border border-white/10">
+          Molette · Glisser · Double-clic
+        </span>
+      </m.div>
+    </m.div>
   );
 }

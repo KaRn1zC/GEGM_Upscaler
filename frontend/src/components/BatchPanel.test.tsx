@@ -37,7 +37,9 @@ describe("BatchPanel", () => {
     await waitFor(() => {
       expect(screen.getByText("one.png")).toBeInTheDocument();
       expect(screen.getByText("two.png")).toBeInTheDocument();
-      expect(screen.getByText(/2 images/)).toBeInTheDocument();
+      // Le compteur est maintenant réparti sur plusieurs spans, on cherche
+      // la chaîne dans le textContent agrégé.
+      expect(container.textContent).toMatch(/2\s*images/);
     });
   });
 
@@ -50,7 +52,8 @@ describe("BatchPanel", () => {
     ]);
 
     await waitFor(() => {
-      expect(screen.getByText(/1 image[^s]/)).toBeInTheDocument();
+      // Format réparti sur plusieurs spans — on vérifie via textContent.
+      expect(container.textContent).toMatch(/1\s*image(?!s)/);
     });
   });
 
@@ -63,9 +66,10 @@ describe("BatchPanel", () => {
 
     await waitFor(() => expect(screen.getByText("to-remove.png")).toBeInTheDocument());
 
-    // X button est dans l'overlay de la tuile — on le trouve via son icône.
+    // X button est dans l'overlay de la tuile — on le trouve via sa classe
+    // (le fond a été harmonisé à bg-black/70 dans la nouvelle charte).
     const removeBtn = container.querySelector(
-      'button[class*="bg-black/60"]',
+      'button[class*="bg-black/70"]',
     ) as HTMLButtonElement;
     expect(removeBtn).not.toBeNull();
 

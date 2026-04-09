@@ -1,63 +1,465 @@
+/*
+ * JetBrains Mono uniquement via Google Fonts — Roc Grotesk et Vanitas
+ * sont auto-hébergés en local via @font-face (cf. plus bas).
+ * IMPORTANT : cet @import url() doit rester le tout premier bloc
+ * du fichier CSS (spec CSS : les @import URL doivent précéder toute
+ * autre règle, et les @import Tailwind s'expandent en rules).
+ */
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap");
+
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
 /*
- * Design system GEGM Upscaler.
- * Dark-first, tons neutres froids avec accents bleu-violet.
+ * ══════════════════════════════════════════════════════════════
+ * Polices de marque GEGM — Roc Grotesk + Vanitas
+ * Auto-hébergées depuis frontend/public/fonts/
+ *
+ * Roc Grotesk : Light 300, Regular 400, Medium 500 (pas de Bold)
+ * Vanitas : Regular 400, Bold 700, ExtraBold 800, Black 900 (pas de Light)
+ *
+ * Les `font-weight` ranges permettent au browser de mapper tous les
+ * poids Tailwind vers le fichier le plus proche, sans changement de code.
+ * ══════════════════════════════════════════════════════════════
  */
 
-@theme {
-  --color-background: #0a0a0f;
-  --color-foreground: #e8e8ed;
-  --color-card: #12121a;
-  --color-card-foreground: #e8e8ed;
-  --color-muted: #1c1c28;
-  --color-muted-foreground: #8b8b9e;
-  --color-border: #2a2a3d;
-  --color-input: #1c1c28;
-  --color-ring: #6366f1;
-  --color-primary: #6366f1;
-  --color-primary-foreground: #ffffff;
-  --color-secondary: #1c1c28;
-  --color-secondary-foreground: #e8e8ed;
-  --color-accent: #8b5cf6;
-  --color-accent-foreground: #ffffff;
-  --color-destructive: #ef4444;
-  --color-destructive-foreground: #ffffff;
-  --color-success: #22c55e;
-  --color-warning: #f59e0b;
-
-  --radius-sm: 0.375rem;
-  --radius-md: 0.5rem;
-  --radius-lg: 0.75rem;
-  --radius-xl: 1rem;
-
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+/* Roc Grotesk Light — couvre 100-350 */
+@font-face {
+  font-family: "Roc Grotesk";
+  src: url("/fonts/RocGrotesk-Light.ttf") format("truetype");
+  font-weight: 100 350;
+  font-style: normal;
+  font-display: swap;
 }
 
-body {
-  margin: 0;
-  background-color: var(--color-background);
-  color: var(--color-foreground);
-  font-family: var(--font-sans);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+/* Roc Grotesk Regular — couvre 351-449 */
+@font-face {
+  font-family: "Roc Grotesk";
+  src: url("/fonts/RocGrotesk-Regular.ttf") format("truetype");
+  font-weight: 351 449;
+  font-style: normal;
+  font-display: swap;
 }
 
-#root {
-  min-height: 100dvh;
-  display: flex;
-  flex-direction: column;
+/* Roc Grotesk Medium — couvre 450-999 (gère aussi 600/700/900 en fake-bold) */
+@font-face {
+  font-family: "Roc Grotesk";
+  src: url("/fonts/RocGrotesk-Medium.ttf") format("truetype");
+  font-weight: 450 999;
+  font-style: normal;
+  font-display: swap;
 }
 
+/* Vanitas Regular — couvre 100-499 (pas de Light officiel) */
+@font-face {
+  font-family: "Vanitas";
+  src: url("/fonts/Vanitas-Regular.ttf") format("truetype");
+  font-weight: 100 499;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Vanitas Bold — couvre 500-749 */
+@font-face {
+  font-family: "Vanitas";
+  src: url("/fonts/Vanitas-Bold.ttf") format("truetype");
+  font-weight: 500 749;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Vanitas ExtraBold — couvre 750-849 */
+@font-face {
+  font-family: "Vanitas";
+  src: url("/fonts/Vanitas-ExtraBold.ttf") format("truetype");
+  font-weight: 750 849;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Vanitas Black — couvre 850-999 */
+@font-face {
+  font-family: "Vanitas";
+  src: url("/fonts/Vanitas-Black.ttf") format("truetype");
+  font-weight: 850 999;
+  font-style: normal;
+  font-display: swap;
+}
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * ══════════════════════════════════════════════════════════════
+ * Design system GEGM Upscaler
+ * Inspiré de l'identité GEGM Group (gegmgroup.com)
+ *   – Noir absolu + blanc pur
+ *   – Bleu électrique signature #1436DE
+ *   – Bleu marine profond #061A84 pour les surfaces
+ *   – Contraste typo extrême (Fraunces display × Space Grotesk thin→bold)
+ * Dark-first : les valeurs par défaut de :root sont déjà le thème sombre,
+ * la classe .dark reprend les mêmes valeurs pour compatibilité shadcn.
+ * ══════════════════════════════════════════════════════════════
+ */
+
+@theme inline {
+  /* Couleurs — tous les utilitaires bg-*, text-*, border-*, ring-* */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* Surfaces signature GEGM */
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-deep: var(--surface-deep);
+  --color-glow: var(--glow);
+
+  /* Radius — échelle géométrique depuis le radius de base */
+  --radius-sm: calc(var(--radius) * 0.5);
+  --radius-md: calc(var(--radius) * 0.75);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.5);
+  --radius-2xl: calc(var(--radius) * 2);
+  --radius-3xl: calc(var(--radius) * 3);
+
+  /* Typographie — polices officielles GEGM (Pangram Pangram + Vanitas)
+     Les alias Space Grotesk / Fraunces restent en fallback au cas où
+     un fichier .ttf serait absent ou corrompu. */
+  --font-sans:
+    "Roc Grotesk", "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Vanitas", "Fraunces", ui-serif, Georgia, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* Ombres signature — glow bleu électrique */
+  --shadow-glow-sm: 0 0 20px rgb(20 54 222 / 0.35);
+  --shadow-glow-md: 0 0 40px rgb(20 54 222 / 0.4);
+  --shadow-glow-lg: 0 0 60px rgb(20 54 222 / 0.5);
+  --shadow-glow-xl: 0 0 100px rgb(20 54 222 / 0.55);
+}
+
+/*
+ * ══════════════════════════════════════════════════════════════
+ * Valeurs des tokens — palette GEGM signature
+ * ══════════════════════════════════════════════════════════════
+ */
+:root {
+  /* Noir absolu, blanc pur */
+  --background: #000000;
+  --foreground: #ffffff;
+
+  /* Cartes et surfaces élevées */
+  --card: #0a0a0f;
+  --card-foreground: #ffffff;
+  --popover: #0f0f18;
+  --popover-foreground: #ffffff;
+
+  /* Primary : bleu électrique signature GEGM */
+  --primary: #1436de;
+  --primary-foreground: #ffffff;
+
+  /* Secondary : bleu marine profond GEGM */
+  --secondary: #061a84;
+  --secondary-foreground: #ffffff;
+
+  /* Neutres sombres */
+  --muted: #12121a;
+  --muted-foreground: rgba(255, 255, 255, 0.55);
+
+  /* Accent : même bleu marine pour cohérence */
+  --accent: #061a84;
+  --accent-foreground: #ffffff;
+
+  /* États sémantiques */
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --success: #22c55e;
+  --warning: #f59e0b;
+
+  /* Bordures fines et inputs — transparence pour laisser respirer le noir */
+  --border: rgba(255, 255, 255, 0.08);
+  --input: rgba(255, 255, 255, 0.1);
+  --ring: #1436de;
+
+  /* Surfaces signature GEGM (tokens supplémentaires) */
+  --surface-raised: #061a84;
+  --surface-deep: #061143;
+  --glow: #1436de;
+
+  /* Opacité du noise overlay global */
+  --noise-opacity: 0.025;
+
+  /* Radius de base */
+  --radius: 0.75rem;
+}
+
+/*
+ * .dark — identique à :root pour dark-first.
+ * Conservé pour compatibilité avec les composants shadcn
+ * qui s'attendent à la classe .dark.
+ */
+.dark {
+  --background: #000000;
+  --foreground: #ffffff;
+  --card: #0a0a0f;
+  --card-foreground: #ffffff;
+  --popover: #0f0f18;
+  --popover-foreground: #ffffff;
+  --primary: #1436de;
+  --primary-foreground: #ffffff;
+  --secondary: #061a84;
+  --secondary-foreground: #ffffff;
+  --muted: #12121a;
+  --muted-foreground: rgba(255, 255, 255, 0.55);
+  --accent: #061a84;
+  --accent-foreground: #ffffff;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --border: rgba(255, 255, 255, 0.08);
+  --input: rgba(255, 255, 255, 0.1);
+  --ring: #1436de;
+  --surface-raised: #061a84;
+  --surface-deep: #061143;
+  --glow: #1436de;
+}
+
+/*
+ * ══════════════════════════════════════════════════════════════
+ * Base styles
+ * ══════════════════════════════════════════════════════════════
+ */
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  html {
+    @apply font-sans;
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    margin: 0;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings:
+      "ss01",
+      "cv01",
+      "tnum";
+  }
+
+  #root {
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    isolation: isolate;
+  }
+
+  /* Numérique tabulaire pour toutes les métriques techniques */
+  [data-tabular] {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/*
+ * ══════════════════════════════════════════════════════════════
+ * Noise overlay — texture film signature sur le fond
+ * Ajoute la grain film qui manque au site GEGM officiel.
+ * ══════════════════════════════════════════════════════════════
+ */
+#root::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: var(--noise-opacity);
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  mix-blend-mode: overlay;
+}
+
+/*
+ * ══════════════════════════════════════════════════════════════
+ * Scrollbars custom — discrètes, bleu électrique au hover
+ * ══════════════════════════════════════════════════════════════
+ */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
+
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
-  background: var(--color-border);
+  background: var(--border);
   border-radius: 3px;
+  transition: background 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(20 54 222 / 0.5);
+}
+
+/*
+ * ══════════════════════════════════════════════════════════════
+ * Utilitaires GEGM — effets signature réutilisables
+ * Classes à appliquer directement dans les composants.
+ * ══════════════════════════════════════════════════════════════
+ */
+
+/* Glow bleu électrique — 3 intensités */
+.glow-sm {
+  box-shadow: var(--shadow-glow-sm);
+}
+.glow-md {
+  box-shadow: var(--shadow-glow-md);
+}
+.glow-lg {
+  box-shadow: var(--shadow-glow-lg);
+}
+.glow-xl {
+  box-shadow: var(--shadow-glow-xl);
+}
+
+/* Text glow pour les titres et accents */
+.text-glow {
+  text-shadow: 0 0 30px rgb(20 54 222 / 0.6);
+}
+
+/*
+ * Shimmer — utilisé pour les barres de progression liquides.
+ * Appliquer sur un élément avec un background de base.
+ */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgb(20 54 222 / 0.4) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2s ease-in-out infinite;
+}
+
+/*
+ * Glow pulse — pour les états actifs (job en cours, upload en progress).
+ * Respiration lente du glow signature.
+ */
+@keyframes glow-pulse {
+  0%,
+  100% {
+    box-shadow: var(--shadow-glow-sm);
+  }
+  50% {
+    box-shadow: var(--shadow-glow-md);
+  }
+}
+
+.glow-pulse {
+  animation: glow-pulse 2.5s ease-in-out infinite;
+}
+
+/*
+ * Gradient mesh — background animé bleu électrique pour le hero.
+ * Simule le halo du site GEGM officiel mais en version animée.
+ */
+@keyframes mesh-drift {
+  0%,
+  100% {
+    background-position:
+      0% 50%,
+      100% 50%,
+      50% 100%;
+  }
+  50% {
+    background-position:
+      100% 50%,
+      0% 50%,
+      50% 0%;
+  }
+}
+
+.gradient-mesh {
+  background-image:
+    radial-gradient(
+      at 20% 30%,
+      rgb(20 54 222 / 0.25) 0px,
+      transparent 50%
+    ),
+    radial-gradient(at 80% 70%, rgb(6 26 132 / 0.4) 0px, transparent 50%),
+    radial-gradient(at 50% 50%, rgb(6 17 67 / 0.3) 0px, transparent 60%);
+  background-size:
+    200% 200%,
+    200% 200%,
+    200% 200%;
+  animation: mesh-drift 20s ease-in-out infinite;
+}
+
+/*
+ * Reveal staggered — animation d'entrée pour les listes de jobs,
+ * la grille de la gallery, les nav items.
+ * Utiliser avec animation-delay: var(--i) * 50ms sur chaque enfant.
+ */
+@keyframes reveal-up {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.reveal-up {
+  animation: reveal-up 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/*
+ * Magnetic cursor — bordure fine qui pulse pour attirer l'attention
+ * sur les zones actives (CompareSlider, ZoomViewer, primary CTAs).
+ */
+@keyframes magnetic-pulse {
+  0%,
+  100% {
+    border-color: rgb(20 54 222 / 0.4);
+  }
+  50% {
+    border-color: rgb(20 54 222 / 0.8);
+  }
+}
+
+.magnetic-pulse {
+  animation: magnetic-pulse 3s ease-in-out infinite;
 }
