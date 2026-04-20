@@ -52,6 +52,9 @@ frontend/coverage/
 .mypy_cache/
 .ruff_cache/
 
+# Model weights (téléchargés via download_weights.sh)
+runpod-worker/models/*.pth
+
 # Misc
 *.log
 *.bak

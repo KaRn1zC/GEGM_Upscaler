@@ -2,7 +2,7 @@
 # Structure en couches optimisée : deps système → deps Python → code app
 # → poids modèle (les couches les plus stables en premier pour le cache).
 
-FROM runpod/pytorch:2.5.1-py3.11-cuda12.1.1-devel-ubuntu22.04
+FROM runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \

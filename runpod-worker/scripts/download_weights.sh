@@ -35,37 +35,46 @@ echo ""
 #     officiel avant de lancer le script :
 #     https://github.com/ming053l/DRCT#-pretrained-models
 
-DRCT_L_GDRIVE_ID="${DRCT_L_GDRIVE_ID:-REPLACE_ME_AVEC_L_ID_DU_README_DRCT}"
+DRCT_L_GDRIVE_ID="${DRCT_L_GDRIVE_ID:-1bVxvA6QFbne2se0CQJ-jyHFy94UOi3h5}"
 DRCT_L_TARGET="${MODELS_DIR}/drct-l.pth"
+
+# gdown est nécessaire pour les deux modèles (Google Drive).
+if ! command -v gdown &> /dev/null; then
+    echo "Installation de gdown (Google Drive downloader)..."
+    pip install --quiet gdown
+fi
 
 if [ -f "${DRCT_L_TARGET}" ]; then
     echo "[skip] drct-l.pth existe déjà"
 else
-    if ! command -v gdown &> /dev/null; then
-        echo "Installation de gdown (Google Drive downloader)..."
-        pip install --quiet gdown
-    fi
     echo "[1/2] Téléchargement drct-l.pth..."
-    gdown --id "${DRCT_L_GDRIVE_ID}" -O "${DRCT_L_TARGET}"
+    gdown "${DRCT_L_GDRIVE_ID}" -O "${DRCT_L_TARGET}"
 fi
 
 # ──────────────────────────────────────────────────────────────
 # HAT-L — Hybrid Attention Transformer Large (fallback)
 # ──────────────────────────────────────────────────────────────
-# XPixelGroup/HAT fournit les poids sur Google Drive et HuggingFace. On
-# préfère HuggingFace pour la stabilité.
+# XPixelGroup/HAT fournit les poids via Google Drive uniquement.
+# Dossier officiel : https://drive.google.com/drive/folders/1HpmReFfoUqUbnAOQ7rvOeNU3uf_m69w0
 #
-# Vérifier l'URL exacte sur :
+# On télécharge le fichier HAT-L_SRx4_ImageNet-pretrain.pth depuis le
+# dossier Google Drive. gdown --folder filtre sur le nom du fichier.
+#
+# Vérifier les liens sur :
 # https://github.com/XPixelGroup/HAT#-pretrained-models
 
-HAT_L_URL="${HAT_L_URL:-https://huggingface.co/spaces/HatL/HAT/resolve/main/HAT-L_SRx4_ImageNet-pretrain.pth}"
+HAT_L_GDRIVE_FOLDER="${HAT_L_GDRIVE_FOLDER:-1HpmReFfoUqUbnAOQ7rvOeNU3uf_m69w0}"
+HAT_L_FILENAME="HAT-L_SRx4_ImageNet-pretrain.pth"
 HAT_L_TARGET="${MODELS_DIR}/hat-l.pth"
 
 if [ -f "${HAT_L_TARGET}" ]; then
     echo "[skip] hat-l.pth existe déjà"
 else
-    echo "[2/2] Téléchargement hat-l.pth..."
-    curl -L --fail -o "${HAT_L_TARGET}" "${HAT_L_URL}"
+    echo "[2/2] Téléchargement hat-l.pth depuis Google Drive..."
+    # Télécharge le fichier directement via son ID Google Drive.
+    # ID extrait du dossier officiel HAT_Pretrained_Models.
+    HAT_L_GDRIVE_FILE_ID="1uefIctjoNE3Tg6GTzelesTTshVogQdUf"
+    gdown "${HAT_L_GDRIVE_FILE_ID}" -O "${HAT_L_TARGET}"
 fi
 
 echo ""
