@@ -18,8 +18,9 @@ def to_2tuple(x):
     return tuple(repeat(x, 2))
 
 
-def trunc_normal_(tensor: torch.Tensor, mean: float = 0.0, std: float = 1.0,
-                  a: float = -2.0, b: float = 2.0) -> torch.Tensor:
+def trunc_normal_(
+    tensor: torch.Tensor, mean: float = 0.0, std: float = 1.0, a: float = -2.0, b: float = 2.0
+) -> torch.Tensor:
     """Initialisation normale tronquée (in-place)."""
     with torch.no_grad():
         low = (1.0 + math.erf((a - mean) / std / math.sqrt(2.0))) / 2.0

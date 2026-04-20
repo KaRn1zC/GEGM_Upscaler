@@ -476,9 +476,7 @@ def _build_output_key(input_key: str) -> str:
     return f"results/{input_key}"
 
 
-async def _mark_failed(
-    session: AsyncSession, job: Job, error_message: str
-) -> None:
+async def _mark_failed(session: AsyncSession, job: Job, error_message: str) -> None:
     """Marque un job comme FAILED en DB avec le message d'erreur.
 
     Args:

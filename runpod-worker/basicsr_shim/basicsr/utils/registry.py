@@ -15,10 +15,12 @@ class Registry:
     def register(self, obj=None, name=None):
         """Décorateur ou appel direct pour enregistrer une classe."""
         if obj is None:
+
             def decorator(fn):
                 key = name if name else fn.__name__
                 self._obj_map[key] = fn
                 return fn
+
             return decorator
         key = name if name else obj.__name__
         self._obj_map[key] = obj

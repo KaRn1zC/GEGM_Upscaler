@@ -41,6 +41,8 @@ import argparse
 import sys
 from pathlib import Path
 
+from loguru import logger
+
 
 def parse_args() -> argparse.Namespace:
     """Parse les arguments CLI."""
@@ -86,7 +88,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def build_drct_l_model(scale: int):  # noqa: ANN201
+def build_drct_l_model(scale: int):
     """Construit une instance DRCT-L avec les hyperparametres officiels.
 
     Args:
@@ -126,7 +128,7 @@ def build_drct_l_model(scale: int):  # noqa: ANN201
     )
 
 
-def build_hat_l_model(scale: int):  # noqa: ANN201
+def build_hat_l_model(scale: int):
     """Construit une instance HAT-L avec les hyperparametres officiels.
 
     Args:
@@ -166,7 +168,7 @@ def build_hat_l_model(scale: int):  # noqa: ANN201
     )
 
 
-def load_weights(model, weights_path: Path) -> None:  # noqa: ANN001
+def load_weights(model, weights_path: Path) -> None:
     """Charge les poids .pth dans le modele.
 
     Les checkpoints peuvent contenir les poids sous plusieurs cles selon
@@ -198,7 +200,7 @@ def load_weights(model, weights_path: Path) -> None:  # noqa: ANN001
 
 
 def convert_model(
-    model,  # noqa: ANN001
+    model,
     tile_size: int,
     output_path: Path,
     precision: str,
@@ -219,8 +221,7 @@ def convert_model(
         import torch
     except ImportError as exc:
         raise ImportError(
-            "coremltools et torch sont requis. "
-            "Installer avec : uv add coremltools torch",
+            "coremltools et torch sont requis. Installer avec : uv add coremltools torch",
         ) from exc
 
     # Trace du modele avec une entree factice de la bonne shape.
@@ -228,9 +229,7 @@ def convert_model(
     traced_model = torch.jit.trace(model, example_input)
 
     # Conversion vers Core ML Program (format .mlpackage moderne).
-    compute_precision = (
-        ct.precision.FLOAT16 if precision == "fp16" else ct.precision.FLOAT32
-    )
+    compute_precision = ct.precision.FLOAT16 if precision == "fp16" else ct.precision.FLOAT32
 
     mlmodel = ct.convert(
         traced_model,
@@ -248,31 +247,30 @@ def convert_model(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     mlmodel.save(str(output_path))
-    print(f"[OK] Modele Core ML exporte : {output_path}")
+    logger.success(f"Modele Core ML exporte : {output_path}")
 
 
 def main() -> int:
     """Point d'entree CLI."""
     args = parse_args()
 
-    print(f"-> Modele : {args.model}")
-    print(f"-> Poids : {args.weights}")
-    print(f"-> Sortie : {args.output}")
-    print(f"-> Tile size : {args.tile_size}")
-    print(f"-> Precision : {args.precision}")
-    print(f"-> Scale : {args.scale}")
-    print()
+    logger.info(f"Modele : {args.model}")
+    logger.info(f"Poids : {args.weights}")
+    logger.info(f"Sortie : {args.output}")
+    logger.info(f"Tile size : {args.tile_size}")
+    logger.info(f"Precision : {args.precision}")
+    logger.info(f"Scale : {args.scale}")
 
     if args.model == "drct-l":
         model = build_drct_l_model(args.scale)
     else:
         model = build_hat_l_model(args.scale)
 
-    print("[1/3] Modele construit")
+    logger.info("[1/3] Modele construit")
     load_weights(model, args.weights)
-    print("[2/3] Poids charges")
+    logger.info("[2/3] Poids charges")
     convert_model(model, args.tile_size, args.output, args.precision)
-    print("[3/3] Conversion terminee")
+    logger.success("[3/3] Conversion terminee")
     return 0
 
 
