@@ -2,11 +2,26 @@
 
 Le broker et le backend de résultats utilisent Redis. La découverte
 automatique des tâches parcourt les modules métier listés ci-dessous.
+
+Sentry est initialisé ici (en plus de ``main.py``) pour capturer les
+exceptions des workers Celery qui tournent dans un process séparé.
 """
 
+import sentry_sdk
 from celery import Celery
+from sentry_sdk.integrations.celery import CeleryIntegration
 
 from app.core.config import settings
+
+# Sentry — capture les exceptions des workers Celery.
+if settings.SENTRY_DSN:
+    sentry_sdk.init(
+        dsn=settings.SENTRY_DSN,
+        environment=settings.APP_ENV,
+        integrations=[CeleryIntegration()],
+        traces_sample_rate=0.1 if settings.is_development else 0.02,
+        send_default_pii=False,
+    )
 
 celery_app = Celery(
     "gegm_upscaler",

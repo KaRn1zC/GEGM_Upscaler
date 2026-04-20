@@ -91,17 +91,41 @@ def _publish_progress_sync(
     pipe.execute()
 
 
+def _cleanup_progress_sync(redis: Redis, job_id: str) -> None:
+    """Supprime la clé de progression Redis après finalisation du job.
+
+    Appelé après completion ou échec pour libérer la mémoire Redis
+    explicitement au lieu d'attendre le TTL d'une heure.
+
+    Args:
+        redis: Client Redis synchrone.
+        job_id: UUID du job.
+    """
+    redis.delete(f"job:{job_id}:progress")
+
+
 # ──────────────────────────────────────────────────────────────
 # Entrée Celery
 # ──────────────────────────────────────────────────────────────
 
 
-@celery_app.task(bind=True, name="jobs.process_upscale")
+@celery_app.task(
+    bind=True,
+    name="jobs.process_upscale",
+    autoretry_for=(ConnectionError, TimeoutError, OSError),
+    retry_backoff=True,
+    retry_backoff_max=60,
+    max_retries=3,
+)
 def process_upscale(self: object, job_id: str) -> dict[str, str]:
     """Tâche Celery d'upscaling — exécute le pipeline complet.
 
     Lit l'image source, route vers le bon backend GPU, upscale, sauvegarde
     le résultat, met à jour le job en base et publie la progression.
+
+    Retry automatique avec backoff exponentiel sur erreurs réseau
+    (ConnectionError, TimeoutError, OSError) — gère les cold starts
+    RunPod et les coupures réseau transitoires.
 
     Args:
         job_id: UUID du job à traiter (sérialisé en string par Celery).
@@ -109,7 +133,12 @@ def process_upscale(self: object, job_id: str) -> dict[str, str]:
     Returns:
         Dictionnaire avec le statut final et l'ID du job.
     """
-    logger.info("Démarrage du job d'upscaling {job_id}", job_id=job_id)
+    logger.info(
+        "Démarrage du job d'upscaling {job_id} (tentative {retry}/{max})",
+        job_id=job_id,
+        retry=self.request.retries,  # type: ignore[attr-defined]
+        max=self.max_retries,  # type: ignore[attr-defined]
+    )
     asyncio.run(_run_pipeline(job_id))
     return {"status": "completed", "job_id": job_id}
 
@@ -295,6 +324,9 @@ async def _run_pipeline(job_id: str) -> None:
             )
 
             logger.info("Job {job_id} terminé avec succès", job_id=job_id)
+
+            # Nettoyage explicite de la clé de progression Redis.
+            _cleanup_progress_sync(redis, job_id)
     except Exception as exc:
         logger.exception("Job {job_id} échoué : {err}", job_id=job_id, err=str(exc))
         _publish_progress_sync(
@@ -304,6 +336,7 @@ async def _run_pipeline(job_id: str) -> None:
             progress=0.0,
             error_message=str(exc),
         )
+        _cleanup_progress_sync(redis, job_id)
         raise
     finally:
         await task_engine.dispose()
@@ -364,8 +397,9 @@ def _try_build_cloud_backend() -> GPUBackend | None:
 async def _wait_for_gpu_result(gpu: GPUBackend, gpu_job_id: str) -> GPUJobResult:
     """Poll le statut du job GPU jusqu'à complétion ou échec.
 
-    Backoff exponentiel : 0.5s, 1s, 2s, 4s, puis 5s constant.
-    Timeout global : 10 minutes.
+    Backoff exponentiel : 0.5s → 1s → 2s → 4s → 5s constant.
+    Si le job reste en QUEUED plus de 30s (cold start RunPod détecté),
+    le polling ralentit à 10s et le timeout s'étend à 15 minutes.
 
     Args:
         gpu: Backend GPU qui a soumis le job.
@@ -375,11 +409,12 @@ async def _wait_for_gpu_result(gpu: GPUBackend, gpu_job_id: str) -> GPUJobResult
         ``GPUJobResult`` final.
 
     Raises:
-        TimeoutError: Si le job ne se termine pas dans les 10 minutes.
+        TimeoutError: Si le job ne se termine pas dans le délai imparti.
     """
     delays = [0.5, 1.0, 2.0, 4.0]
-    max_elapsed = 600.0
+    max_elapsed = 600.0  # 10 minutes par défaut
     elapsed = 0.0
+    cold_start_detected = False
 
     while elapsed < max_elapsed:
         result = await gpu.get_job_status(gpu_job_id)
@@ -387,11 +422,27 @@ async def _wait_for_gpu_result(gpu: GPUBackend, gpu_job_id: str) -> GPUJobResult
         if result.status in (GPUJobStatus.COMPLETED, GPUJobStatus.FAILED):
             return result
 
-        delay = delays[min(int(elapsed // 2), len(delays) - 1)] if elapsed < 10 else 5.0
+        # Cold start : le job reste en queue > 30s → adapter les paramètres.
+        if result.status == GPUJobStatus.QUEUED and elapsed > 30 and not cold_start_detected:
+            cold_start_detected = True
+            max_elapsed = 900.0  # 15 minutes pour absorber le cold start
+            logger.info(
+                "Cold start détecté pour job GPU {id} — timeout étendu à 15 min",
+                id=gpu_job_id,
+            )
+
+        # Polling plus lent en cold start pour ne pas surcharger l'API RunPod.
+        if cold_start_detected and result.status == GPUJobStatus.QUEUED:
+            delay = 10.0
+        elif elapsed < 10:
+            delay = delays[min(int(elapsed // 2), len(delays) - 1)]
+        else:
+            delay = 5.0
+
         await asyncio.sleep(delay)
         elapsed += delay
 
-    raise TimeoutError(f"Job GPU {gpu_job_id} n'a pas abouti en 10 minutes")
+    raise TimeoutError(f"Job GPU {gpu_job_id} n'a pas abouti en {max_elapsed / 60:.0f} minutes")
 
 
 def _extract_output_bytes(gpu: GPUBackend, gpu_job_id: str, result: GPUJobResult) -> bytes | None:
