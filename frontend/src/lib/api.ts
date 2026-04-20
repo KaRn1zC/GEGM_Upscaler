@@ -50,7 +50,7 @@ export interface HealthResponse {
 
 // ── Helpers ──────────────────────────────────────────────────
 
-const AUTH_TOKEN = "dev-secret-token-change-me";
+const AUTH_TOKEN = import.meta.env.VITE_DEV_TOKEN ?? "dev-secret-token-change-me";
 
 function headers(): HeadersInit {
   return {
@@ -148,8 +148,3 @@ export async function getReadiness(): Promise<HealthResponse> {
   return res.json() as Promise<HealthResponse>;
 }
 
-// ── SSE ──────────────────────────────────────────────────────
-
-export function createProgressStream(jobId: string): EventSource {
-  return new EventSource(`${API_BASE}/jobs/${jobId}/progress`);
-}

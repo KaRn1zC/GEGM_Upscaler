@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { API_BASE } from "@/lib/constants";
 
 interface UploadState {
   isUploading: boolean;
@@ -13,7 +14,7 @@ interface UploadResult {
   content_type: string;
 }
 
-const AUTH_TOKEN = "dev-secret-token-change-me";
+const AUTH_TOKEN = import.meta.env.VITE_DEV_TOKEN ?? "dev-secret-token-change-me";
 
 export function useUpload() {
   const [state, setState] = useState<UploadState>({
@@ -55,7 +56,7 @@ export function useUpload() {
         reject(new Error(msg));
       });
 
-      xhr.open("POST", "/api/uploads");
+      xhr.open("POST", `${API_BASE}/uploads`);
       xhr.setRequestHeader("Authorization", `Bearer ${AUTH_TOKEN}`);
       xhr.send(form);
     });

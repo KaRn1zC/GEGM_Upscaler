@@ -59,11 +59,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:1420",  # Tauri dev
-        "http://localhost:5173",  # Vite dev
-        "tauri://localhost",  # Tauri production
-    ],
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

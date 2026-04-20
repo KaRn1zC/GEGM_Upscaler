@@ -58,6 +58,7 @@ export const useJobStore = create<JobStore>((set) => ({
     // Upload + création de job en parallèle pour chaque fichier.
     // On capture les erreurs individuellement pour que l'échec d'un
     // fichier ne bloque pas les autres.
+    const newJobs: JobResponse[] = [];
     const results = await Promise.all(
       files.map(async (file): Promise<BatchItemResult> => {
         try {
@@ -67,6 +68,7 @@ export const useJobStore = create<JobStore>((set) => ({
             scale_factor: scaleFactor,
             model_name: modelName,
           });
+          newJobs.push(job);
           return { file, jobId: job.id, error: null };
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
@@ -75,22 +77,7 @@ export const useJobStore = create<JobStore>((set) => ({
       }),
     );
 
-    // Ajoute les jobs créés avec succès au store.
-    const newJobs = await Promise.all(
-      results
-        .filter((r): r is BatchItemResult & { jobId: string } => r.jobId !== null)
-        .map(async (r) => {
-          const jobs = await listJobs();
-          return jobs.find((j) => j.id === r.jobId);
-        }),
-    );
-
-    set((s) => ({
-      jobs: [
-        ...newJobs.filter((j): j is JobResponse => j !== undefined),
-        ...s.jobs,
-      ],
-    }));
+    set((s) => ({ jobs: [...newJobs, ...s.jobs] }));
 
     return results;
   },

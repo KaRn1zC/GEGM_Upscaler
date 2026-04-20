@@ -27,6 +27,11 @@ class Settings(BaseSettings):
 
     # ── Application ──────────────────────────────────────────────
     APP_ENV: Literal["development", "staging", "production"] = "development"
+    CORS_ORIGINS: list[str] = [
+        "http://localhost:1420",   # Tauri dev
+        "http://localhost:5173",   # Vite dev
+        "tauri://localhost",       # Tauri production
+    ]
 
     # ── Database ─────────────────────────────────────────────────
     DATABASE_URL: str = "postgresql+asyncpg://upscaler:upscaler@localhost:5432/upscaler"
