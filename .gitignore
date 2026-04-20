@@ -44,9 +44,10 @@ monitoring/grafana/data/
 monitoring/prometheus/data/
 monitoring/loki/data/
 
-# Tests
+# Tests / Coverage
 .coverage
 htmlcov/
+frontend/coverage/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
