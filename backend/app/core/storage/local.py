@@ -89,17 +89,20 @@ class LocalStorageBackend(StorageBackend):
         return await asyncio.to_thread(path.read_bytes)
 
     async def get_presigned_url(self, key: str, expires_in: int = 3600) -> str:
-        """Retourne un chemin d'API pour le téléchargement local.
+        """Retourne la clé de stockage pour un téléchargement local.
 
-        En mode local, pas de signature — retourne un chemin relatif
-        que le frontend peut appeler directement sur l'API.
+        En mode local il n'y a pas d'URL signée — le téléchargement
+        passe par ``storage.download()`` via l'endpoint API
+        ``GET /api/jobs/{id}/download``. Cette méthode vérifie que le
+        fichier existe et retourne la clé, utilisable par le backend
+        S3 pour générer une vraie URL signée.
 
         Args:
             key: Clé de stockage du fichier.
             expires_in: Ignoré en local (pas d'expiration).
 
         Returns:
-            Chemin d'API sous la forme ``/api/files/{key}``.
+            La clé de stockage du fichier (pas une URL HTTP).
 
         Raises:
             FileNotFoundError: Si le fichier n'existe pas.
@@ -108,7 +111,7 @@ class LocalStorageBackend(StorageBackend):
         path = self._resolve_path(key)
         if not await asyncio.to_thread(path.exists):
             raise FileNotFoundError(f"Fichier introuvable : {key}")
-        return f"/api/files/{key}"
+        return key
 
     async def delete(self, key: str) -> None:
         """Supprime un fichier du disque local.

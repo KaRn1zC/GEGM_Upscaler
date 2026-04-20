@@ -118,6 +118,7 @@ class CoreMLBackend(GPUBackend):
         """
         self._model_path = model_path
         self._results: dict[str, GPUJobResult] = {}
+        self._output_data: dict[str, bytes] = {}
 
     async def submit_job(self, image_data: bytes, params: UpscaleParams) -> str:
         """Soumet une image pour upscaling via Core ML.
@@ -157,7 +158,6 @@ class CoreMLBackend(GPUBackend):
             )
 
             # Stocker les bytes de sortie pour récupération ultérieure.
-            self._output_data: dict[str, bytes] = getattr(self, "_output_data", {})
             self._output_data[job_id] = output_bytes
 
             logger.info("Job Core ML terminé — id={job_id}", job_id=job_id)
@@ -198,8 +198,7 @@ class CoreMLBackend(GPUBackend):
         Returns:
             Bytes de l'image upscalée, ou ``None`` si non disponible.
         """
-        output_data: dict[str, bytes] = getattr(self, "_output_data", {})
-        return output_data.get(job_id)
+        return self._output_data.get(job_id)
 
     def _run_inference(self, image_data: bytes, params: UpscaleParams) -> bytes:
         """Exécute le pipeline complet d'inférence (synchrone).

@@ -55,3 +55,6 @@ htmlcov/
 *.log
 *.bak
 *.tmp
+
+# Docs
+INFRA_QUESTIONS.md

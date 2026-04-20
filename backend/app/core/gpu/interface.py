@@ -80,3 +80,20 @@ class GPUBackend(ABC):
         Returns:
             État courant, progression et résultat si terminé.
         """
+
+    @abstractmethod
+    def get_output_data(self, job_id: str) -> bytes | None:
+        """Récupère les bytes de l'image résultat d'un job terminé.
+
+        Chaque backend stocke le résultat en mémoire après complétion
+        (Core ML dans un dict interne, RunPod dans un cache après
+        décodage du payload base64). Les bytes doivent rester disponibles
+        au moins jusqu'à ce que le worker Celery les ait uploadés dans
+        le storage.
+
+        Args:
+            job_id: Identifiant retourné par ``submit_job``.
+
+        Returns:
+            Bytes de l'image upscalée, ou ``None`` si indisponible.
+        """

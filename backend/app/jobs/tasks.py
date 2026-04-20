@@ -9,17 +9,26 @@ le stream SSE côté API. En cas d'absence de backend local ou cloud,
 un fallback gracieux est appliqué par le routeur GPU.
 """
 
+from __future__ import annotations
+
 import asyncio
 import json
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from loguru import logger
 from redis import Redis
 
 from app.core.celery import celery_app
 from app.core.config import settings
+from app.core.gpu.interface import GPUBackend, GPUJobResult, GPUJobStatus
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from app.jobs.models import Job
 
 # ──────────────────────────────────────────────────────────────
 # Redis helpers (synchrones pour les workers Celery)
@@ -130,8 +139,8 @@ async def _run_pipeline(job_id: str) -> None:
     """
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-    from app.core.gpu.interface import GPUJobStatus, UpscaleParams
-    from app.core.storage.local import LocalStorageBackend
+    from app.core.dependencies import get_storage
+    from app.core.gpu.interface import UpscaleParams
     from app.jobs.models import Job, JobStatus
     from app.upscaling.router_gpu import compute_megapixels, select_gpu_backend
 
@@ -141,7 +150,8 @@ async def _run_pipeline(job_id: str) -> None:
     )
 
     redis = _get_sync_redis()
-    storage = LocalStorageBackend(base_path=settings.LOCAL_STORAGE_PATH)
+    # Utilise le backend configuré dans .env (local ou S3) — même logique que l'API.
+    storage = get_storage()
 
     try:
         async with task_session_factory() as session:
@@ -305,7 +315,7 @@ async def _run_pipeline(job_id: str) -> None:
 # ──────────────────────────────────────────────────────────────
 
 
-def _try_build_local_backend(model_name: str) -> object | None:
+def _try_build_local_backend(model_name: str) -> GPUBackend | None:
     """Tente de construire le backend Core ML local.
 
     Retourne ``None`` si le fichier modèle n'existe pas ou si coremltools
@@ -331,7 +341,7 @@ def _try_build_local_backend(model_name: str) -> object | None:
         return None
 
 
-def _try_build_cloud_backend() -> object | None:
+def _try_build_cloud_backend() -> GPUBackend | None:
     """Tente de construire le backend RunPod cloud.
 
     Retourne ``None`` si les credentials RunPod ne sont pas configurés.
@@ -351,7 +361,7 @@ def _try_build_cloud_backend() -> object | None:
     return RunPodBackend(api_key=api_key, endpoint_id=endpoint_id)
 
 
-async def _wait_for_gpu_result(gpu: object, gpu_job_id: str) -> object:
+async def _wait_for_gpu_result(gpu: GPUBackend, gpu_job_id: str) -> GPUJobResult:
     """Poll le statut du job GPU jusqu'à complétion ou échec.
 
     Backoff exponentiel : 0.5s, 1s, 2s, 4s, puis 5s constant.
@@ -367,14 +377,12 @@ async def _wait_for_gpu_result(gpu: object, gpu_job_id: str) -> object:
     Raises:
         TimeoutError: Si le job ne se termine pas dans les 10 minutes.
     """
-    from app.core.gpu.interface import GPUJobStatus
-
     delays = [0.5, 1.0, 2.0, 4.0]
     max_elapsed = 600.0
     elapsed = 0.0
 
     while elapsed < max_elapsed:
-        result = await gpu.get_job_status(gpu_job_id)  # type: ignore[attr-defined]
+        result = await gpu.get_job_status(gpu_job_id)
 
         if result.status in (GPUJobStatus.COMPLETED, GPUJobStatus.FAILED):
             return result
@@ -386,12 +394,11 @@ async def _wait_for_gpu_result(gpu: object, gpu_job_id: str) -> object:
     raise TimeoutError(f"Job GPU {gpu_job_id} n'a pas abouti en 10 minutes")
 
 
-def _extract_output_bytes(gpu: object, gpu_job_id: str, result: object) -> bytes | None:
-    """Récupère les bytes du résultat selon le type de backend.
+def _extract_output_bytes(gpu: GPUBackend, gpu_job_id: str, result: GPUJobResult) -> bytes | None:
+    """Récupère les bytes du résultat via le backend GPU.
 
-    Pour Core ML : le backend stocke les bytes en mémoire et expose
-    ``get_output_data(job_id)``. Pour RunPod : le résultat est téléchargé
-    depuis la clé de storage retournée par l'API.
+    Les deux backends (Core ML et RunPod) stockent les bytes en mémoire
+    après inférence et les exposent via ``get_output_data(job_id)``.
 
     Args:
         gpu: Backend GPU qui a traité le job.
@@ -401,13 +408,7 @@ def _extract_output_bytes(gpu: object, gpu_job_id: str, result: object) -> bytes
     Returns:
         Bytes de l'image de sortie, ou ``None`` si indisponible.
     """
-    if hasattr(gpu, "get_output_data"):
-        return gpu.get_output_data(gpu_job_id)  # type: ignore[attr-defined]
-
-    # RunPod : le résultat doit contenir les bytes dans result.output_key
-    # (le handler RunPod doit re-uploader dans notre storage).
-    logger.warning("Pas de mécanisme de récupération des bytes pour ce backend")
-    return None
+    return gpu.get_output_data(gpu_job_id)
 
 
 def _build_output_key(input_key: str) -> str:
@@ -424,7 +425,9 @@ def _build_output_key(input_key: str) -> str:
     return f"results/{input_key}"
 
 
-async def _mark_failed(session: object, job: object, error_message: str) -> None:
+async def _mark_failed(
+    session: AsyncSession, job: Job, error_message: str
+) -> None:
     """Marque un job comme FAILED en DB avec le message d'erreur.
 
     Args:
@@ -434,8 +437,8 @@ async def _mark_failed(session: object, job: object, error_message: str) -> None
     """
     from app.jobs.models import JobStatus
 
-    job.status = JobStatus.FAILED  # type: ignore[attr-defined]
-    job.error_message = error_message  # type: ignore[attr-defined]
-    job.completed_at = datetime.now(UTC)  # type: ignore[attr-defined]
-    await session.commit()  # type: ignore[attr-defined]
-    logger.error("Job {id} marqué FAILED : {err}", id=str(job.id), err=error_message)  # type: ignore[attr-defined]
+    job.status = JobStatus.FAILED
+    job.error_message = error_message
+    job.completed_at = datetime.now(UTC)
+    await session.commit()
+    logger.error("Job {id} marqué FAILED : {err}", id=str(job.id), err=error_message)

@@ -106,14 +106,13 @@ def test_should_extract_bytes_from_local_backend() -> None:
     assert _extract_output_bytes(mock_backend, "job-123", result) == fake_bytes
 
 
-def test_should_return_none_for_backend_without_output_data_method() -> None:
-    """Un backend sans get_output_data doit retourner None (log warning)."""
-
-    class DummyBackend:
-        """Backend sans la méthode ``get_output_data``."""
+def test_should_return_none_for_unknown_job_id() -> None:
+    """Un backend doit retourner None pour un job_id inconnu."""
+    mock_backend = MagicMock()
+    mock_backend.get_output_data.return_value = None
 
     result = GPUJobResult(status=GPUJobStatus.COMPLETED, progress=1.0)
-    assert _extract_output_bytes(DummyBackend(), "job-123", result) is None
+    assert _extract_output_bytes(mock_backend, "unknown-job", result) is None
 
 
 # ──────────────────────────────────────────────────────────────

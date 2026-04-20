@@ -82,14 +82,14 @@ async def test_should_raise_on_delete_missing_file(
 # ── Presigned URL ────────────────────────────────────────────────
 
 
-async def test_should_return_api_path_as_presigned_url(
+async def test_should_return_key_as_presigned_url(
     storage: LocalStorageBackend,
 ) -> None:
-    """En local, l'URL présignée est un chemin d'API relatif."""
+    """En local, l'URL présignée retourne la clé de stockage."""
     await storage.upload("result.png", b"upscaled")
     url = await storage.get_presigned_url("result.png")
 
-    assert url == "/api/files/result.png"
+    assert url == "result.png"
 
 
 async def test_should_raise_presigned_url_for_missing_file(
