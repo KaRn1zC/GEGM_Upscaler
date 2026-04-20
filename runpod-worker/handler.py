@@ -74,6 +74,7 @@ def load_model(model_name: str) -> torch.nn.Module:
 
     if model_name == "drct-l":
         from drct.archs.DRCT_arch import DRCT
+        # DRCT-L : 12 RSTB blocks (vs 6 pour DRCT de base).
         model = DRCT(
             upscale=4,
             in_chans=3,
@@ -84,15 +85,16 @@ def load_model(model_name: str) -> torch.nn.Module:
             conv_scale=0.01,
             overlap_ratio=0.5,
             img_range=1.0,
-            depths=[6, 6, 6, 6, 6, 6],
+            depths=[6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6],
             embed_dim=180,
-            num_heads=[6, 6, 6, 6, 6, 6],
+            num_heads=[6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6],
             mlp_ratio=2,
             upsampler="pixelshuffle",
             resi_connection="1conv",
         )
     elif model_name == "hat-l":
         from hat.archs.hat_arch import HAT
+        # HAT-L : 12 RHAG blocks (vs 6 pour HAT de base).
         model = HAT(
             upscale=4,
             in_chans=3,
@@ -103,9 +105,9 @@ def load_model(model_name: str) -> torch.nn.Module:
             conv_scale=0.01,
             overlap_ratio=0.5,
             img_range=1.0,
-            depths=[6, 6, 6, 6, 6, 6],
+            depths=[6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6],
             embed_dim=180,
-            num_heads=[6, 6, 6, 6, 6, 6],
+            num_heads=[6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6],
             mlp_ratio=2,
             upsampler="pixelshuffle",
             resi_connection="1conv",
