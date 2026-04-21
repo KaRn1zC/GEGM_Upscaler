@@ -86,7 +86,13 @@ class Job(Base):
     error_message: Mapped[str | None] = mapped_column(Text)
 
     # -- Timestamps --
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # ``created_at`` est indexé pour optimiser l'``ORDER BY created_at DESC``
+    # de ``list_user_jobs`` (la requête la plus chaude — appelée à chaque
+    # refresh de l'UI). PostgreSQL scanne un index B-tree dans les deux sens,
+    # l'index ASC est donc aussi efficace qu'un DESC pour ce cas.
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

@@ -14,7 +14,6 @@ Example:
 
 from fastapi import Depends, HTTPException, Query, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth.interface import AuthBackend
@@ -24,6 +23,7 @@ from app.core.gpu.interface import GPUBackend
 from app.core.secrets.interface import SecretsBackend
 from app.core.storage.interface import StorageBackend
 from app.users.models import User
+from app.users.service import get_or_create_by_email
 
 # Ré-export pour que les routeurs importent tout depuis dependencies.
 __all__ = [
@@ -167,16 +167,7 @@ async def get_current_user(
             detail="Email manquant dans les credentials",
         )
 
-    result = await db.execute(select(User).where(User.email == identity.email))
-    user = result.scalar_one_or_none()
-
-    if user is None:
-        user = User(email=identity.email, name=identity.name)
-        db.add(user)
-        await db.commit()
-        await db.refresh(user)
-
-    return user
+    return await get_or_create_by_email(db, email=identity.email, name=identity.name)
 
 
 def get_gpu_local() -> GPUBackend:

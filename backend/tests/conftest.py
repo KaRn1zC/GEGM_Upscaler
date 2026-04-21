@@ -15,13 +15,32 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import Session, SessionTransaction
 from sqlalchemy.pool import NullPool
 
-from app.core.auth.static_token import StaticTokenAuth
+from app.core.auth.interface import AuthBackend, AuthenticatedUser
 from app.core.config import settings
 from app.core.dependencies import get_auth, get_db, get_storage
 from app.core.storage.local import LocalStorageBackend
 from app.main import app
 
 AUTH_HEADERS: dict[str, str] = {"Authorization": "Bearer test-token"}
+
+
+class _TestAuth(AuthBackend):
+    """Backend d'auth des tests — retourne un user isolé de celui du dev local.
+
+    Utilise un email dédié ``pytest@test.local`` (distinct du ``dev@gegm.local``
+    du ``StaticTokenAuth`` prod) pour éviter que les tests DB voient les jobs
+    créés en dev local réel — l'isolation SAVEPOINT ne couvre pas les writes
+    faits hors de la session pytest.
+    """
+
+    _TOKEN = "test-token"  # noqa: S105 — fixture de test, pas un vrai secret
+    _EMAIL = "pytest@test.local"
+    _NAME = "Pytest User"
+
+    async def get_current_user(self, credentials: str) -> AuthenticatedUser:
+        if credentials != self._TOKEN:
+            raise ValueError("Token invalide")
+        return AuthenticatedUser(id="pytest-user", email=self._EMAIL, name=self._NAME)
 
 
 @pytest.fixture
@@ -78,7 +97,7 @@ async def client(
 
     app.dependency_overrides[get_db] = _test_db
     app.dependency_overrides[get_storage] = lambda: storage
-    app.dependency_overrides[get_auth] = lambda: StaticTokenAuth(token="test-token")
+    app.dependency_overrides[get_auth] = _TestAuth
 
     async with AsyncClient(
         transport=ASGITransport(app=app),
