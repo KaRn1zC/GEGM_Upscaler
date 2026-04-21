@@ -4,7 +4,7 @@ import { ImageIcon } from "lucide-react";
 import { Gallery } from "@/components/Gallery";
 import { ZoomViewer } from "@/components/ZoomViewer";
 import { useJobStore } from "@/stores/useJobStore";
-import type { JobResponse } from "@/lib/api";
+import { getDownloadUrl, type JobResponse } from "@/lib/api";
 
 const EASE_OUT_EXPO = [0.22, 1, 0.36, 1] as const;
 
@@ -60,7 +60,7 @@ export function GalleryPage() {
               className="mb-10"
             >
               <ZoomViewer
-                imageUrl={`/api/jobs/${zoomJob.id}/download`}
+                imageUrl={getDownloadUrl(zoomJob.id)}
                 title={`${zoomJob.output_width}×${zoomJob.output_height} · ${zoomJob.model_name}`}
                 onClose={() => setZoomJob(null)}
               />

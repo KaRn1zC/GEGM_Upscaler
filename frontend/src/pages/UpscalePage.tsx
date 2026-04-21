@@ -9,7 +9,7 @@ import { useSSE } from "@/hooks/useSSE";
 import { useJobStore } from "@/stores/useJobStore";
 import { cn } from "@/lib/utils";
 import { MODEL_OPTIONS, SCALE_FACTORS, type ScaleFactor } from "@/lib/constants";
-import type { JobResponse } from "@/lib/api";
+import { getDownloadUrl, getUploadUrl, type JobResponse } from "@/lib/api";
 
 const EASE_OUT_EXPO = [0.22, 1, 0.36, 1] as const;
 
@@ -123,8 +123,8 @@ export function UpscalePage() {
               className="mb-10"
             >
               <CompareSlider
-                beforeSrc={`/api/uploads/${compareJob.input_key}`}
-                afterSrc={`/api/jobs/${compareJob.id}/download`}
+                beforeSrc={getUploadUrl(compareJob.input_key)}
+                afterSrc={getDownloadUrl(compareJob.id)}
                 onClose={() => setCompareJob(null)}
               />
             </m.div>
@@ -325,7 +325,7 @@ export function UpscalePage() {
                   <JobCard
                     job={job}
                     onDownload={() =>
-                      window.open(`/api/jobs/${job.id}/download`, "_blank")
+                      window.open(getDownloadUrl(job.id), "_blank")
                     }
                     onCompare={() => setCompareJob(job)}
                   />

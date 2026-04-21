@@ -32,33 +32,123 @@ cd frontend && npm install && cd ..
 cp .env.example .env
 ```
 
-## Commandes
+## Workflow de développement
 
-### Stack complète via Docker Compose
+Trois scénarios selon ce que tu veux faire. **Tu utilises presque toujours l'approche A.**
+
+| Approche | Quand l'utiliser | Démarrage | Hot reload |
+|----------|------------------|:---------:|:----------:|
+| **A — Dev itératif** (hybride) | Feature, bug fix, test, travail du quotidien | ~30 s | ✅ Vite + uvicorn `--reload` |
+| **B — Simulation prod locale** (tout-Docker) | Vérifier le `backend/Dockerfile`, reproduire un bug prod | 2-5 min (build) | ❌ rebuild image sur changement |
+| **C — Prod entreprise** (GHCR + pull) | Déploiement sur serveur GEGM | N/A | N/A |
+
+---
+
+### Approche A — Dev itératif (recommandée, 99 % du temps)
+
+Infrastructure en containers, **applicatif en natif sur l'host**. C'est le mode le plus rapide pour itérer.
 
 ```bash
-# Lancer tout : Postgres + Redis + API + Worker Celery
+# 1. Démarrer l'infra (postgres + redis uniquement)
+docker compose up -d postgres redis
+
+# 2. Appliquer les migrations (à faire 1 fois, puis à chaque nouvelle révision)
+uv run alembic upgrade head
+
+# 3. Terminal A — API FastAPI
+cd backend
+LOCAL_STORAGE_PATH=/tmp/gegm-upscaler-data \
+COREML_MODEL_DIR=/tmp/gegm-upscaler-models \
+uv run --env-file ../.env \
+  uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+
+# 4. Terminal B — Worker Celery
+cd backend
+LOCAL_STORAGE_PATH=/tmp/gegm-upscaler-data \
+COREML_MODEL_DIR=/tmp/gegm-upscaler-models \
+uv run --env-file ../.env \
+  celery -A app.main.celery_app worker --loglevel=info --concurrency=2
+
+# 5. Terminal C — Frontend Vite
+cd frontend && npm run dev
+```
+
+**Pourquoi ces surcharges ?**
+
+- `--env-file ../.env` : pydantic-settings cherche `.env` dans le *cwd* ; lancé depuis `backend/`, il ne trouve pas le `.env` racine. Ce flag charge explicitement le bon fichier.
+- `LOCAL_STORAGE_PATH=/tmp/gegm-upscaler-data` : la valeur par défaut `/data` n'est pas writable sans sudo sur macOS/Linux. `/tmp/...` évite ça.
+- `COREML_MODEL_DIR=/tmp/gegm-upscaler-models` : idem pour le répertoire des `.mlpackage` Core ML (inutilisé tant que les modèles ne sont pas convertis).
+
+**Arrêt** : `Ctrl+C` dans chaque terminal + `docker compose down` pour l'infra.
+
+---
+
+### Approche B — Simulation prod locale (tout-Docker)
+
+Tout en containers, comme en prod. Utile pour valider le Dockerfile ou reproduire un bug d'environnement.
+
+```bash
+# 1. Pré-builder l'image backend (évite le warning "pull access denied")
+docker compose build
+
+# 2. Démarrer toute la stack applicative
 docker compose up -d
 
-# Avec le monitoring : Loki + Prometheus + Grafana + Flower
+# 3. (Optionnel) Ajouter le monitoring
 docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
 
-# Logs en temps réel
+# 4. Frontend — toujours hors container (Vite dev server reste sur l'host)
+cd frontend && npm run dev
+
+# Logs temps réel
 docker compose logs -f api worker
 
 # Arrêt
 docker compose down
 
-# Reset complet (supprime les volumes)
+# Reset complet (supprime les volumes Postgres/Redis/uploads)
 docker compose down -v
 ```
 
-Services exposés :
+**À propos du warning `pull access denied`** : il apparaît quand Docker tente de pull `gegm-upscaler-backend:latest` avant de fallback sur le build local. Ce n'est pas une erreur — juste bruyant. Le `docker compose build` explicite en étape 1 l'élimine. Le warning disparaîtra définitivement quand le CI (`.github/workflows/docker.yml`) aura pushé l'image sur GHCR au premier tag `v*.*.*`.
+
+---
+
+### Approche C — Prod entreprise (future)
+
+Déploiement sur serveur GEGM après réponse de l'infra (cf. [`INFRA_QUESTIONS.md`](./INFRA_QUESTIONS.md)).
+
+```bash
+# Sur le serveur prod
+docker login ghcr.io -u <user> -p <PAT-github>
+
+# Pull l'image publiée par le CI au dernier tag
+docker compose -f docker-compose.prod.yml pull
+
+# Démarrer
+docker compose -f docker-compose.prod.yml up -d
+```
+
+Le fichier `docker-compose.prod.yml` sera créé en Phase E (préparation infra entreprise). Il remplacera le `build:` local par `image: ghcr.io/karn1zc/gegm-upscaler-backend:${RELEASE_TAG}`.
+
+**Cycle de release** :
+
+```bash
+git tag v0.1.0 && git push --tags
+# → déclenche .github/workflows/docker.yml
+# → build multi-arch (amd64 + arm64)
+# → push ghcr.io/karn1zc/gegm-upscaler-backend:{0.1.0, 0.1, latest}
+```
+
+---
+
+### Services exposés (approche A ou B)
 
 | Service | URL | Credentials |
 |---------|-----|-------------|
 | API FastAPI | http://localhost:8000 | Bearer `dev-secret-token-change-me` |
 | API Docs (Swagger) | http://localhost:8000/api/docs | — |
+| Frontend Vite | http://localhost:5173 | — |
 | Grafana | http://localhost:3000 | admin / admin |
 | Prometheus | http://localhost:9090 | — |
 | Loki | http://localhost:3100 | — |
@@ -66,23 +156,15 @@ Services exposés :
 | PostgreSQL | localhost:5432 | upscaler / upscaler |
 | Redis | localhost:6379 | — |
 
-### Backend en dev local (hors Docker)
+### Commandes de base (indépendantes du scénario)
 
 ```bash
-# Services d'infrastructure uniquement
-docker compose up -d postgres redis
+# Nouvelle migration Alembic
+uv run alembic revision --autogenerate -m "description"
+uv run alembic upgrade head
 
-# Migrations DB
-cd backend && uv run alembic upgrade head
-
-# API en mode rechargement
-cd backend && uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-
-# Worker Celery
-cd backend && uv run celery -A app.main.celery_app worker --loglevel=info
-
-# Créer une nouvelle migration
-cd backend && uv run alembic revision --autogenerate -m "description"
+# Commit Celery frozen (après changement de dépendances)
+uv lock && uv sync --frozen
 ```
 
 ### Qualité du code (backend)

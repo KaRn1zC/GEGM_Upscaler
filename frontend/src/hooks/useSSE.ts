@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { getProgressStreamUrl } from "@/lib/api";
 
 export interface SSEProgressEvent {
   job_id: string;
@@ -22,7 +23,7 @@ export function useSSE({ jobId, onProgress, onComplete, onError }: UseSSEOptions
   useEffect(() => {
     if (!jobId) return;
 
-    const es = new EventSource(`/api/jobs/${jobId}/progress`);
+    const es = new EventSource(getProgressStreamUrl(jobId));
     sourceRef.current = es;
 
     es.addEventListener("progress", (e) => {

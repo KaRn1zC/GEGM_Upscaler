@@ -39,8 +39,9 @@ describe("Gallery", () => {
 
     const images = screen.getAllByRole("img");
     expect(images).toHaveLength(3);
-    expect(images[0]).toHaveAttribute("src", "/api/jobs/j1/download");
-    expect(images[1]).toHaveAttribute("src", "/api/jobs/j2/download");
+    // URL inclut le token en query param pour authentifier les <img> natives.
+    expect(images[0].getAttribute("src")).toMatch(/^\/api\/jobs\/j1\/download\?token=/);
+    expect(images[1].getAttribute("src")).toMatch(/^\/api\/jobs\/j2\/download\?token=/);
   });
 
   it("should display output dimensions on each tile", () => {

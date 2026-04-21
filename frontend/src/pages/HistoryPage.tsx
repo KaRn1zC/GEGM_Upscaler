@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { m } from "motion/react";
 import { Archive } from "lucide-react";
 import { JobCard } from "@/components/JobCard";
+import { getDownloadUrl } from "@/lib/api";
 import { useJobStore } from "@/stores/useJobStore";
 
 const EASE_OUT_EXPO = [0.22, 1, 0.36, 1] as const;
@@ -94,8 +95,7 @@ export function HistoryPage() {
                   job={job}
                   onDownload={
                     job.status === "completed"
-                      ? () =>
-                          window.open(`/api/jobs/${job.id}/download`, "_blank")
+                      ? () => window.open(getDownloadUrl(job.id), "_blank")
                       : undefined
                   }
                 />

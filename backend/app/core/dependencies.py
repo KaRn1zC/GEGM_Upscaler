@@ -12,7 +12,7 @@ Example:
         async def upload(storage: StorageBackend = Depends(get_storage)): ...
 """
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Query, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,7 +36,15 @@ __all__ = [
     "get_storage",
 ]
 
-_bearer_scheme = HTTPBearer()
+# ``auto_error=False`` : permet à ``get_current_user`` de tomber en fallback
+# sur le query param ``?token=`` quand le header est absent (nécessaire pour
+# les balises HTML natives — ``<img>``, ``<a download>``, ``EventSource`` —
+# qui ne peuvent pas envoyer d'en-tête ``Authorization``).
+#
+# En prod avec OIDC, les JWT sont trop longs et sensibles pour être passés
+# en URL ; on utilisera alors des presigned URLs S3 directement, et ce
+# fallback deviendra inutile pour l'accès aux fichiers.
+_bearer_scheme = HTTPBearer(auto_error=False)
 
 
 def get_storage() -> StorageBackend:
@@ -104,17 +112,30 @@ def get_secrets() -> SecretsBackend:
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(_bearer_scheme),
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
+    token: str | None = Query(
+        default=None,
+        description=(
+            "Token d'auth alternatif via query param — destiné aux balises HTML "
+            "natives (img, a download, EventSource) qui ne peuvent pas envoyer "
+            "de header Authorization. Ignoré si le header Bearer est présent."
+        ),
+    ),
     auth: AuthBackend = Depends(get_auth),
     db: AsyncSession = Depends(get_db),
 ) -> User:
     """Authentifie la requête et retourne l'utilisateur DB correspondant.
 
+    Accepte le token via le header ``Authorization: Bearer <token>`` (cas
+    standard des appels JSON) ou via le query param ``?token=<token>`` (cas
+    des balises HTML natives qui ne portent pas d'en-tête custom).
+
     Auto-provisionne l'utilisateur en base lors de sa première connexion
     (lookup par email, création si absent).
 
     Args:
-        credentials: Token Bearer extrait du header Authorization.
+        credentials: Token Bearer du header ``Authorization`` (si présent).
+        token: Token alternatif via query param ``?token=`` (si présent).
         auth: Backend d'authentification actif.
         db: Session de base de données.
 
@@ -122,10 +143,18 @@ async def get_current_user(
         Instance ``User`` correspondant à l'identité authentifiée.
 
     Raises:
-        HTTPException: 401 si les credentials sont invalides ou l'email absent.
+        HTTPException: 401 si aucun token n'est fourni, si le token est
+            invalide, ou si l'email est absent dans les credentials.
     """
+    raw_token = credentials.credentials if credentials else token
+    if not raw_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Credentials requis (header Authorization ou ?token=)",
+        )
+
     try:
-        identity = await auth.get_current_user(credentials.credentials)
+        identity = await auth.get_current_user(raw_token)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -168,4 +197,9 @@ def get_gpu_cloud() -> GPUBackend:
     return RunPodBackend(
         api_key=settings.RUNPOD_API_KEY.get_secret_value(),
         endpoint_id=settings.RUNPOD_ENDPOINT_ID,
+        s3_endpoint_url=settings.S3_OUTPUT_ENDPOINT_URL,
+        s3_bucket=settings.S3_OUTPUT_BUCKET,
+        s3_access_key=settings.S3_OUTPUT_ACCESS_KEY.get_secret_value(),
+        s3_secret_key=settings.S3_OUTPUT_SECRET_KEY.get_secret_value(),
+        s3_region=settings.S3_OUTPUT_REGION,
     )

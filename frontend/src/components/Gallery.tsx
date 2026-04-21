@@ -1,6 +1,6 @@
 import { m } from "motion/react";
 import { Download, ZoomIn } from "lucide-react";
-import type { JobResponse } from "@/lib/api";
+import { getDownloadUrl, type JobResponse } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 interface GalleryProps {
@@ -41,7 +41,7 @@ export function Gallery({ jobs, onZoom }: GalleryProps) {
         >
           <m.img
             layoutId={`job-img-${job.id}`}
-            src={`/api/jobs/${job.id}/download`}
+            src={getDownloadUrl(job.id)}
             alt={`Job ${job.id}`}
             className="w-full h-full object-cover"
             loading="lazy"
@@ -70,9 +70,7 @@ export function Gallery({ jobs, onZoom }: GalleryProps) {
                 </m.button>
               )}
               <m.button
-                onClick={() =>
-                  window.open(`/api/jobs/${job.id}/download`, "_blank")
-                }
+                onClick={() => window.open(getDownloadUrl(job.id), "_blank")}
                 whileHover={{ scale: 1.1 }}
                 whileTap={{ scale: 0.9 }}
                 transition={{ type: "spring", stiffness: 400, damping: 25 }}

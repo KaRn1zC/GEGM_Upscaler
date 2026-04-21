@@ -4,12 +4,20 @@ Soumet des images à un endpoint RunPod Serverless pour upscaling et
 poll le statut jusqu'à complétion. L'image est transmise en base64
 dans le payload JSON ; le résultat revient dans le champ ``output``.
 
+Le handler RunPod supporte deux modes de retour :
+- ``inline`` : image en base64 dans ``output.image`` (limité à ~20 MB
+  par la limite de payload RunPod ``/status``).
+- ``s3`` : image uploadée par le handler sur un bucket S3-compatible,
+  URL retournée dans ``output.output_url``. Pas de limite de taille.
+
 L'endpoint RunPod doit exposer un handler compatible avec le format
 d'entrée/sortie défini dans ``runpod-worker/handler.py``.
 """
 
 import base64
+from urllib.parse import urlparse
 
+import aioboto3
 import httpx
 from loguru import logger
 
@@ -45,12 +53,28 @@ class RunPodBackend(GPUBackend):
         _output_cache: Cache ``job_id → bytes`` des résultats décodés.
     """
 
-    def __init__(self, api_key: str, endpoint_id: str) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        endpoint_id: str,
+        *,
+        s3_endpoint_url: str = "",
+        s3_bucket: str = "",
+        s3_access_key: str = "",
+        s3_secret_key: str = "",
+        s3_region: str = "auto",
+    ) -> None:
         """Initialise le client RunPod.
 
         Args:
             api_key: Clé API RunPod (depuis les secrets).
             endpoint_id: Identifiant de l'endpoint Serverless cible.
+            s3_endpoint_url: URL du bucket S3-compatible où le handler
+                upload les outputs volumineux. Vide = mode inline uniquement.
+            s3_bucket: Nom du bucket de sortie.
+            s3_access_key: Access Key ID pour le bucket.
+            s3_secret_key: Secret Access Key pour le bucket.
+            s3_region: Région du bucket (``auto`` pour R2/MinIO).
         """
         self._api_key = api_key
         self._endpoint_id = endpoint_id
@@ -60,6 +84,19 @@ class RunPodBackend(GPUBackend):
             timeout=_REQUEST_TIMEOUT,
         )
         self._output_cache: dict[str, bytes] = {}
+
+        # Config S3 pour le download des outputs volumineux. Si au moins
+        # une variable clef manque, on fallback sur l'inline uniquement.
+        self._s3_endpoint_url = s3_endpoint_url
+        self._s3_bucket = s3_bucket
+        self._s3_region = s3_region
+        self._s3_session: aioboto3.Session | None = None
+        if s3_endpoint_url and s3_access_key and s3_secret_key:
+            self._s3_session = aioboto3.Session(
+                aws_access_key_id=s3_access_key,
+                aws_secret_access_key=s3_secret_key,
+                region_name=s3_region,
+            )
 
     async def submit_job(self, image_data: bytes, params: UpscaleParams) -> str:
         """Soumet une image à RunPod pour upscaling.
@@ -146,11 +183,23 @@ class RunPodBackend(GPUBackend):
 
         if status == GPUJobStatus.COMPLETED:
             output = data.get("output", {})
-            # Le handler RunPod renvoie l'image encodée en base64 dans
-            # output.image. On la décode et on la met en cache pour
-            # récupération via get_output_data().
+            # Le handler renvoie soit l'image en base64 (output.image), soit
+            # une URL S3 (output.output_url) pour les résultats volumineux.
+            output_url = output.get("output_url")
             image_b64 = output.get("image")
-            if image_b64:
+            if output_url:
+                try:
+                    self._output_cache[job_id] = await self._fetch_s3_url(output_url)
+                    output_key = job_id
+                except Exception as exc:
+                    logger.error(
+                        "RunPod — download S3 échoué pour job {job_id} : {err}",
+                        job_id=job_id,
+                        err=str(exc),
+                    )
+                    status = GPUJobStatus.FAILED
+                    error = f"Download output S3 échoué : {exc}"
+            elif image_b64:
                 try:
                     self._output_cache[job_id] = base64.b64decode(image_b64)
                     output_key = job_id
@@ -164,11 +213,11 @@ class RunPodBackend(GPUBackend):
                     error = f"Base64 output invalide : {exc}"
             else:
                 logger.warning(
-                    "RunPod — output sans champ 'image' pour job {job_id}",
+                    "RunPod — output sans 'image' ni 'output_url' pour job {job_id}",
                     job_id=job_id,
                 )
                 status = GPUJobStatus.FAILED
-                error = "Output RunPod sans champ 'image'"
+                error = "Output RunPod sans 'image' ni 'output_url'"
 
         if status == GPUJobStatus.FAILED and error is None:
             error = data.get("error", runpod_status)
@@ -214,6 +263,43 @@ class RunPodBackend(GPUBackend):
     async def close(self) -> None:
         """Ferme le client HTTP et libère les connexions."""
         await self._client.aclose()
+
+    async def _fetch_s3_url(self, url: str) -> bytes:
+        """Télécharge un objet depuis une URL S3 (``s3://bucket/key``).
+
+        Utilisé pour récupérer les outputs volumineux que le handler RunPod
+        a uploadés directement sur le bucket (bypass la limite de 20 MB
+        du payload ``/status``).
+
+        Args:
+            url: URL au format ``s3://<bucket>/<key>``.
+
+        Returns:
+            Bytes bruts de l'objet.
+
+        Raises:
+            RuntimeError: Si la config S3 output est incomplète ou si
+                l'URL ne correspond pas au bucket configuré.
+        """
+        if self._s3_session is None:
+            raise RuntimeError(
+                "Output S3 reçu mais aucune config S3_OUTPUT_* dans les settings — "
+                "impossible de télécharger"
+            )
+
+        parsed = urlparse(url)
+        if parsed.scheme != "s3":
+            raise RuntimeError(f"URL output inattendue (scheme != s3) : {url}")
+
+        bucket = parsed.netloc
+        key = parsed.path.lstrip("/")
+        if not bucket or not key:
+            raise RuntimeError(f"URL output mal formée : {url}")
+
+        async with self._s3_session.client("s3", endpoint_url=self._s3_endpoint_url) as s3:
+            response = await s3.get_object(Bucket=bucket, Key=key)
+            async with response["Body"] as stream:
+                return await stream.read()
 
 
 def _estimate_progress(status: GPUJobStatus) -> float:

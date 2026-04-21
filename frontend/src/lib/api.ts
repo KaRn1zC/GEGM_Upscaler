@@ -59,6 +59,23 @@ function headers(): HeadersInit {
   };
 }
 
+/**
+ * Ajoute le token d'authentification en query param à une URL d'API.
+ *
+ * Destiné aux contextes où les headers HTTP ne peuvent pas être contrôlés —
+ * typiquement les balises HTML natives (`<img src>`, `<a download>`, `EventSource`).
+ *
+ * En prod OIDC, les JWT sont trop longs/sensibles pour être passés en URL ;
+ * on basculera alors sur des presigned URLs générées par le StorageBackend S3
+ * (qui n'ont plus besoin du token puisque l'accès est signé cryptographiquement).
+ * Ce helper restera utilisable tel quel côté frontend — seule l'implémentation
+ * backend changera (redirect 302 vers la presigned URL).
+ */
+function buildAuthedUrl(path: string): string {
+  const separator = path.includes("?") ? "&" : "?";
+  return `${path}${separator}token=${encodeURIComponent(AUTH_TOKEN)}`;
+}
+
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const body = await res.text();
@@ -118,10 +135,37 @@ export async function cancelJob(jobId: string): Promise<void> {
   }
 }
 
-// ── Download ─────────────────────────────────────────────────
+// ── URLs authentifiées (pour <img>, <a download>, EventSource) ─────────
 
+/**
+ * URL du fichier résultat d'un job, utilisable directement dans un ``<img src>``
+ * ou un ``window.open`` sans pouvoir injecter le header Authorization.
+ */
 export function getDownloadUrl(jobId: string): string {
-  return `${API_BASE}/jobs/${jobId}/download`;
+  return buildAuthedUrl(`${API_BASE}/jobs/${jobId}/download`);
+}
+
+/**
+ * URL du fichier source (input) d'un job, utilisable dans un ``<img src>``.
+ *
+ * ``inputKey`` vient de ``job.input_key`` et contient déjà le chemin
+ * interne au bucket (ex. ``uploads/<uuid>.png``). Le préfixe ``/api/uploads/``
+ * est celui de l'endpoint FastAPI — il est concaténé à la key pour former
+ * l'URL complète ``/api/uploads/uploads/<uuid>.png``, où le second ``uploads/``
+ * est le segment de clé (équivalent à un "dossier" dans le bucket).
+ */
+export function getUploadUrl(inputKey: string): string {
+  return buildAuthedUrl(`${API_BASE}/uploads/${inputKey}`);
+}
+
+/**
+ * URL du stream SSE de progression d'un job, utilisable dans un ``EventSource``.
+ *
+ * ``EventSource`` ne supporte pas les headers custom — on passe donc le token
+ * en query param comme pour les autres URLs authentifiées.
+ */
+export function getProgressStreamUrl(jobId: string): string {
+  return buildAuthedUrl(`${API_BASE}/jobs/${jobId}/progress`);
 }
 
 // ── Users ────────────────────────────────────────────────────

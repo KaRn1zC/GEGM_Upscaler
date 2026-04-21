@@ -13,6 +13,7 @@ from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_user, get_db, get_storage
+from app.core.media import guess_media_type
 from app.core.redis import get_redis_pool
 from app.core.storage.interface import StorageBackend
 from app.jobs.schemas import JobCreate, JobResponse
@@ -116,7 +117,7 @@ async def download_job_result(
         ) from exc
 
     filename = Path(job.output_key).name
-    media_type = _guess_media_type(filename)
+    media_type = guess_media_type(filename)
 
     return Response(
         content=data,
@@ -126,26 +127,6 @@ async def download_job_result(
             "Content-Length": str(len(data)),
         },
     )
-
-
-def _guess_media_type(filename: str) -> str:
-    """Devine le Content-Type à partir de l'extension du fichier.
-
-    Args:
-        filename: Nom du fichier avec extension.
-
-    Returns:
-        Type MIME correspondant (``image/png`` par défaut).
-    """
-    ext = Path(filename).suffix.lower()
-    return {
-        ".png": "image/png",
-        ".jpg": "image/jpeg",
-        ".jpeg": "image/jpeg",
-        ".webp": "image/webp",
-        ".tiff": "image/tiff",
-        ".tif": "image/tiff",
-    }.get(ext, "image/png")
 
 
 @router.delete("/api/jobs/{job_id}", status_code=204)

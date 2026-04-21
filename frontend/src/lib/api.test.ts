@@ -31,12 +31,16 @@ function jsonResponse(data: unknown, status = 200): Response {
 }
 
 describe("getDownloadUrl", () => {
-  it("should build the correct download path", () => {
-    expect(getDownloadUrl("job-123")).toBe("/api/jobs/job-123/download");
+  it("should build the correct download path with auth token in query", () => {
+    // Le token en query param permet aux <img> / window.open de s'authentifier
+    // sans header Authorization (impossible sur ces balises natives).
+    const url = getDownloadUrl("job-123");
+    expect(url).toMatch(/^\/api\/jobs\/job-123\/download\?token=/);
   });
 
   it("should handle UUID-like job IDs", () => {
-    expect(getDownloadUrl("a1b2c3d4-5678")).toBe("/api/jobs/a1b2c3d4-5678/download");
+    const url = getDownloadUrl("a1b2c3d4-5678");
+    expect(url).toMatch(/^\/api\/jobs\/a1b2c3d4-5678\/download\?token=/);
   });
 });
 

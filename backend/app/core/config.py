@@ -61,6 +61,17 @@ class Settings(BaseSettings):
     RUNPOD_API_KEY: SecretStr = SecretStr("")
     RUNPOD_ENDPOINT_ID: str = ""
 
+    # ── Stockage S3 des outputs RunPod ─────────────────────────
+    # Le handler RunPod upload les images upscalées sur ce bucket car l'API
+    # /status de RunPod est limitée à ~20 MB de payload. Si les 4 variables
+    # sont renseignées, le backend télécharge depuis ce bucket ; sinon il
+    # fallback sur le base64 inline.
+    S3_OUTPUT_ENDPOINT_URL: str = ""
+    S3_OUTPUT_BUCKET: str = ""
+    S3_OUTPUT_ACCESS_KEY: SecretStr = SecretStr("")
+    S3_OUTPUT_SECRET_KEY: SecretStr = SecretStr("")
+    S3_OUTPUT_REGION: str = "auto"
+
     # ── Monitoring ───────────────────────────────────────────────
     SENTRY_DSN: str = ""
 
