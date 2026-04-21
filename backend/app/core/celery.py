@@ -35,6 +35,14 @@ celery_app.conf.update(
     result_serializer="json",
     timezone="UTC",
     task_track_started=True,
+    # Planification Beat : cleanup quotidien à 03:00 UTC (heure creuse).
+    # Nécessite le process `celery beat` en plus du worker (voir docker-compose).
+    beat_schedule={
+        "cleanup-old-jobs-daily": {
+            "task": "jobs.cleanup_old_jobs",
+            "schedule": 60 * 60 * 24,  # 24h en secondes
+        },
+    },
 )
 
 # Découverte automatique des tâches dans les modules métier.

@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     S3_ACCESS_KEY: SecretStr = SecretStr("")
     S3_SECRET_KEY: SecretStr = SecretStr("")
     S3_REGION: str = "auto"
+    # Rétention des fichiers (inputs + outputs) en jours. Les jobs plus
+    # anciens que ce seuil sont supprimés par la tâche Celery Beat
+    # ``jobs.cleanup.cleanup_old_jobs``.
+    STORAGE_RETENTION_DAYS: int = 30
 
     # ── Auth ─────────────────────────────────────────────────────
     AUTH_BACKEND: Literal["static_token", "oidc"] = "static_token"
