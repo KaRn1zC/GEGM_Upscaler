@@ -69,3 +69,7 @@ e2e-*.png
 
 # Docs
 INFRA_QUESTIONS.md
+# Archis DRCT/HAT clonees pour la conversion Core ML (H.1)
+vendor/
+# Modeles Core ML generes (lourds, gitignores)
+models/*.mlpackage/

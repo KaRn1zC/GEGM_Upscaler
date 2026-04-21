@@ -37,6 +37,14 @@ dev = [
     "pytest-cov>=7.1.0",
     "ruff>=0.15.9",
 ]
+# Optionnel : dépendances pour convertir les poids PyTorch en Core ML.
+# Installer avec : `uv sync --group coreml` (macOS uniquement).
+# torch est volumineux (~2 Go + CUDA) — on ne l'installe que quand nécessaire.
+coreml = [
+    "torch>=2.5",
+    "timm>=1.0",
+    "einops>=0.8",
+]
 
 # ══════════════════════════════════════════════════════════════
 # Ruff — Linter + Formatter
