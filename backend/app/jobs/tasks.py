@@ -1,47 +1,36 @@
-"""Tâches Celery pour le pipeline d'upscaling.
+"""Tâche Celery d'entrée du pipeline d'upscaling.
 
-Ce module expose uniquement l'entry point Celery : le décorateur
-``@celery_app.task`` avec sa configuration de retry. La logique métier
-du pipeline est dans ``upscaling.pipeline.run_pipeline``.
+Ce module expose uniquement la tâche ``jobs.process_upscale`` qui
+déclenche le pipeline composé en Celery Canvas (défini dans
+``app.upscaling.pipeline``).
+
+Les 6 étapes (validate → preprocess → route → upscale → save → notify)
+sont indépendantes, chacune retry-able individuellement si besoin.
+L'étape ``task_upscale`` a son propre retry automatique sur erreurs
+réseau (RunPod cold starts, timeouts) — les autres étapes sont des
+opérations locales qui n'en bénéficieraient pas.
 """
-
-import asyncio
 
 from loguru import logger
 
 from app.core.celery import celery_app
-from app.upscaling.pipeline import run_pipeline
+from app.upscaling.pipeline import run_pipeline_chain
 
 
-@celery_app.task(
-    bind=True,
-    name="jobs.process_upscale",
-    autoretry_for=(ConnectionError, TimeoutError, OSError),
-    retry_backoff=True,
-    retry_backoff_max=60,
-    max_retries=3,
-)
-def process_upscale(self: object, job_id: str) -> dict[str, str]:
-    """Tâche Celery d'upscaling — point d'entrée du pipeline.
+@celery_app.task(name="jobs.process_upscale")
+def process_upscale(job_id: str) -> dict[str, str]:
+    """Entry point Celery — déclenche le pipeline chain pour un job.
 
-    Délègue toute la logique métier à ``upscaling.pipeline.run_pipeline``.
-    Ce module ne contient que l'intégration Celery (retry, logging).
-
-    Retry automatique avec backoff exponentiel sur erreurs réseau
-    (``ConnectionError``, ``TimeoutError``, ``OSError``) — gère les cold
-    starts RunPod et les coupures réseau transitoires.
+    Cette tâche se contente de dispatcher la chain et retourne immédiatement.
+    Le vrai traitement se fait dans les 6 tâches chaînées de
+    ``upscaling.pipeline``.
 
     Args:
         job_id: UUID du job à traiter (sérialisé en string par Celery).
 
     Returns:
-        Dictionnaire avec le statut final et l'ID du job.
+        Dictionnaire avec le statut de dispatch et l'ID du job.
     """
-    logger.info(
-        "Démarrage du job d'upscaling {job_id} (tentative {retry}/{max})",
-        job_id=job_id,
-        retry=self.request.retries,  # type: ignore[attr-defined]
-        max=self.max_retries,  # type: ignore[attr-defined]
-    )
-    asyncio.run(run_pipeline(job_id))
-    return {"status": "completed", "job_id": job_id}
+    logger.info("Dispatch pipeline chain pour job {jid}", jid=job_id)
+    root_task_id = run_pipeline_chain(job_id)
+    return {"status": "dispatched", "job_id": job_id, "root_task_id": root_task_id}
