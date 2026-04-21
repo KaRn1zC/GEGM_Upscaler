@@ -75,8 +75,8 @@ class OIDCAuth(AuthBackend):
                 expiration) ou si le JWKS ne peut pas être récupéré.
         """
         try:
-            from authlib.jose import jwt  # type: ignore[import-untyped]
-            from authlib.jose.errors import JoseError  # type: ignore[import-untyped]
+            from authlib.jose import jwt
+            from authlib.jose.errors import JoseError
         except ImportError as exc:
             raise ImportError(
                 "OIDCAuth nécessite authlib. Installer avec : uv add authlib"
@@ -136,7 +136,7 @@ class OIDCAuth(AuthBackend):
             return self._jwks_cache
 
         try:
-            from authlib.jose import JsonWebKey  # type: ignore[import-untyped]
+            from authlib.jose import JsonWebKey
         except ImportError as exc:
             raise ImportError(
                 "OIDCAuth nécessite authlib. Installer avec : uv add authlib"

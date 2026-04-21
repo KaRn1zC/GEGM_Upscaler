@@ -86,6 +86,9 @@ jobs:
       - name: Ruff format check
         run: uv run ruff format --check backend/
 
+      - name: MyPy type check
+        run: uv run mypy backend/app/
+
       - name: Run Alembic migrations
         run: uv run alembic upgrade head
 

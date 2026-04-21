@@ -115,7 +115,8 @@ def image_to_uint8(arr: NDArray[np.float32]) -> NDArray[np.uint8]:
     Returns:
         Array en uint8 dans [0, 255].
     """
-    return np.clip(arr * 255.0, 0, 255).astype(np.uint8)
+    converted: NDArray[np.uint8] = np.clip(arr * 255.0, 0, 255).astype(np.uint8)
+    return converted
 
 
 def uint8_to_float(arr: NDArray[np.uint8]) -> NDArray[np.float32]:

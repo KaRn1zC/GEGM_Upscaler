@@ -149,7 +149,8 @@ class S3StorageBackend(StorageBackend):
                 raise RuntimeError(f"Download S3 échoué : {exc}") from exc
 
             async with response["Body"] as stream:
-                return await stream.read()
+                data: bytes = await stream.read()
+                return data
 
     async def get_presigned_url(self, key: str, expires_in: int = 3600) -> str:
         """Génère une URL présignée pour télécharger directement le fichier.

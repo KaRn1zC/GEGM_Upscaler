@@ -299,7 +299,8 @@ class RunPodBackend(GPUBackend):
         async with self._s3_session.client("s3", endpoint_url=self._s3_endpoint_url) as s3:
             response = await s3.get_object(Bucket=bucket, Key=key)
             async with response["Body"] as stream:
-                return await stream.read()
+                data: bytes = await stream.read()
+                return data
 
 
 def _estimate_progress(status: GPUJobStatus) -> float:

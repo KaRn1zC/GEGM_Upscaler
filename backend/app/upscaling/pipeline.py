@@ -459,7 +459,8 @@ def run_pipeline_chain(job_id: str) -> str:
         jid=job_id,
         tid=result.id,
     )
-    return result.id
+    root_id: str = result.id
+    return root_id
 
 
 # ──────────────────────────────────────────────────────────────

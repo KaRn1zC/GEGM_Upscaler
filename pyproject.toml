@@ -81,3 +81,8 @@ strict = true
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true
+# Les décorateurs Celery (``@celery_app.task``, ``@signal.connect``) n'ont pas
+# de stubs officiels : mypy strict les considère comme "untyped" et propage le
+# warning sur chaque fonction décorée. On désactive globalement cet avertissement
+# car il est noise dans une codebase qui s'appuie naturellement sur Celery.
+disable_error_code = ["untyped-decorator"]

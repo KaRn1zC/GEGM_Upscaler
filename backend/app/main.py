@@ -9,16 +9,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 from prometheus_fastapi_instrumentator import Instrumentator
 
-# Enregistrement des modèles ORM pour que SQLAlchemy connaisse le schéma complet.
-import app.jobs.models
-import app.users.models
 from app.core.celery import celery_app  # noqa: F401 — accessible via app.main.celery_app
 from app.core.config import settings
 from app.core.database import engine
 from app.core.logging import setup_logging
 from app.core.redis import close_redis_pool
+
+# Enregistrement des modèles ORM pour que SQLAlchemy connaisse le schéma complet.
+# L'alias ``as _`` évite la confusion mypy entre le package ``app`` et la
+# variable ``app = FastAPI(...)`` déclarée plus bas.
+from app.jobs import models as _jobs_models  # noqa: F401
 from app.jobs.router import router as jobs_router
 from app.uploads.router import router as uploads_router
+from app.users import models as _users_models  # noqa: F401
 from app.users.router import router as users_router
 
 # ── Sentry — alertes d'erreurs avec stack trace ────────────────

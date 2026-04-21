@@ -145,4 +145,4 @@ async def stream_job_progress(
         )
 
     finally:
-        await pubsub.aclose()
+        await pubsub.aclose()  # type: ignore[no-untyped-call]

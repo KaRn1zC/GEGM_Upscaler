@@ -89,7 +89,8 @@ async def get_current_progress(redis: Redis, job_id: str) -> dict[str, Any] | No
     raw = await redis.get(_progress_key(job_id))
     if raw is None:
         return None
-    return json.loads(raw)
+    parsed: dict[str, Any] = json.loads(raw)
+    return parsed
 
 
 async def subscribe_progress(redis: Redis, job_id: str) -> PubSub:
