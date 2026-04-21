@@ -1,17 +1,16 @@
 /**
- * Pastille indicateur du mode d'exécution courant (local Core ML vs
- * cloud RunPod) basé sur les ressources système détectées.
+ * Pastille indicateur du mode d'exécution courant.
  *
- * Affiche en permanence le verdict de `canRunLocalStrict()` + permet de
- * consulter le détail des critères dans un modal au clic.
- *
- * En contexte web (sans Tauri), le hook retourne `null` → badge
- * affichant "Cloud" sans pouvoir expliquer (c'est l'environnement
- * browser qui impose cloud).
+ * **v1 (actuelle)** : traitement cloud exclusif via RunPod Serverless. Le
+ * mode local Core ML est désactivé car la conversion PyTorch → `.mlpackage`
+ * de DRCT-L et HAT-L n'a pas abouti (incompatibilité coremltools avec les
+ * `int(tensor)` implicites du window-partitioning Swin). Les critères de
+ * capacité sont toujours évalués pour affichage informatif — ils
+ * redeviendront décisionnels quand le local sera réactivé (v2).
  */
 
-import { AnimatePresence, m } from "motion/react";
-import { Cloud, Info, Zap } from "lucide-react";
+import { m } from "motion/react";
+import { Cloud, Info } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -30,10 +29,8 @@ export function CapabilityBadge() {
   const { decision, refresh } = useSystemResources();
   const [showDetails, setShowDetails] = useState(false);
 
-  // Hors Tauri ou ressources non lues → affichage "cloud" neutre.
-  const isLocal = decision?.can_run_local ?? false;
+  // v1 : cloud exclusif. Le snapshot reste affiché en info dans le dialog.
   const snapshot = decision?.snapshot ?? null;
-  const blockers = decision?.blockers ?? [];
 
   const iconCommon = "w-3.5 h-3.5";
   const summary = snapshot ? formatResourcesSummary(snapshot) : null;
@@ -49,22 +46,12 @@ export function CapabilityBadge() {
         className={cn(
           "flex items-center gap-2 px-3 py-1.5 rounded-full border text-[11px]",
           "font-sans uppercase tracking-[0.18em] transition-colors",
-          isLocal
-            ? "border-primary/40 bg-primary/10 text-primary hover:border-primary/60"
-            : "border-border bg-card text-muted-foreground hover:text-foreground hover:border-foreground/30",
+          "border-border bg-card text-muted-foreground hover:text-foreground hover:border-foreground/30",
         )}
-        aria-label={
-          isLocal
-            ? "Mode local actif — cliquer pour les détails"
-            : "Mode cloud — cliquer pour les détails"
-        }
+        aria-label="Mode cloud — cliquer pour les détails"
       >
-        {isLocal ? (
-          <Zap className={cn(iconCommon, "fill-primary/30")} />
-        ) : (
-          <Cloud className={iconCommon} />
-        )}
-        <span className="font-medium">{isLocal ? "Local" : "Cloud"}</span>
+        <Cloud className={iconCommon} />
+        <span className="font-medium">Cloud</span>
         {summary && (
           <span className="hidden md:inline text-[10px] tracking-normal normal-case opacity-75">
             · {summary}
@@ -76,18 +63,18 @@ export function CapabilityBadge() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              {isLocal ? (
-                <Zap className="w-4 h-4 text-primary" />
-              ) : (
-                <Cloud className="w-4 h-4 text-muted-foreground" />
-              )}
-              {isLocal ? "Mode local actif" : "Mode cloud"}
+              <Cloud className="w-4 h-4 text-muted-foreground" />
+              Mode cloud (RunPod)
             </DialogTitle>
             <DialogDescription asChild>
               <div className="text-xs text-muted-foreground">
-                {isLocal
-                  ? "Ton Mac a les ressources suffisantes pour traiter les images ≤ 5 MP en local via Core ML. Les images plus grandes restent traitées sur RunPod Serverless."
-                  : "Les images sont traitées sur RunPod Serverless. Le mode local n'est pas disponible pour la raison ci-dessous."}
+                Tous les traitements passent par RunPod Serverless. Le mode
+                local Core ML est prévu pour une prochaine version : la
+                conversion PyTorch → <code>.mlpackage</code> de DRCT-L / HAT-L
+                s'est heurtée à une incompatibilité coremltools sur les
+                opérations <code>int(tensor)</code> du window-partitioning
+                Swin. Les capteurs de ressources restent actifs pour
+                préparer la réactivation.
               </div>
             </DialogDescription>
           </DialogHeader>
@@ -163,34 +150,18 @@ export function CapabilityBadge() {
                 </section>
               )}
 
-              {/* Raisons de blocage */}
-              <AnimatePresence>
-                {!isLocal && blockers.length > 0 && (
-                  <m.section
-                    initial={{ opacity: 0, y: 6 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0 }}
-                    className="rounded-lg border border-destructive/30 bg-destructive/5 p-3"
-                  >
-                    <h3 className="flex items-center gap-2 text-[10px] uppercase tracking-[0.22em] text-destructive mb-2">
-                      <Info className="w-3 h-3" />
-                      Raisons du fallback cloud
-                    </h3>
-                    <ul className="space-y-1 text-xs font-mono text-destructive/90">
-                      {blockers.map((reason) => (
-                        <li key={reason} className="flex gap-2">
-                          <span className="text-destructive/50">·</span>
-                          <span>{reason}</span>
-                        </li>
-                      ))}
-                    </ul>
-                    <p className="mt-2 text-[10px] text-muted-foreground italic">
-                      Fermer des applications lourdes peut débloquer le mode
-                      local.
-                    </p>
-                  </m.section>
-                )}
-              </AnimatePresence>
+              {/* Note v1 — local désactivé */}
+              <section className="rounded-lg border border-border bg-card p-3">
+                <h3 className="flex items-center gap-2 text-[10px] uppercase tracking-[0.22em] text-muted-foreground mb-2">
+                  <Info className="w-3 h-3" />
+                  Mode local (v2)
+                </h3>
+                <p className="text-xs text-muted-foreground">
+                  Le snapshot ci-dessus sera utilisé pour décider
+                  local vs cloud dès que la conversion Core ML des modèles
+                  sera débloquée.
+                </p>
+              </section>
             </div>
           )}
 

@@ -38,10 +38,59 @@ dans un dossier local.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import sys
 from pathlib import Path
+from types import ModuleType
 
 from loguru import logger
+
+
+def _load_arch_module(file_path: Path, module_name: str) -> ModuleType:
+    """Charge dynamiquement un fichier ``*_arch.py`` sans passer par le
+    paquet parent (qui tire des deps lourdes comme cv2).
+
+    Applique au passage un patch sur la ligne ``int(windows.shape[0]/...)``
+    du fichier : inoffensive en eager, mais fatale au tracer coremltools 9
+    qui n'accepte pas de cast depuis un tensor non scalaire. On remplace
+    la division flottante par une division entière, équivalente
+    numériquement sur des shapes valides. La version patchée est écrite
+    dans un fichier voisin ``*.patched.py`` puis chargée via importlib.
+
+    Args:
+        file_path: Chemin absolu vers le fichier d'architecture.
+        module_name: Nom logique à attribuer au module importé.
+
+    Returns:
+        Le module chargé avec la classe d'architecture accessible.
+
+    Raises:
+        ImportError: Si le fichier n'existe pas ou le loader est invalide.
+    """
+    if not file_path.exists():
+        raise ImportError(f"Fichier d'architecture introuvable : {file_path}")
+
+    source = file_path.read_text()
+    patched_source = source.replace(
+        "B = int(windows.shape[0] / (H * W / window_size / window_size))",
+        "B = windows.shape[0] // (H * W // window_size // window_size)",
+    ).replace(
+        "b = int(windows.shape[0] / (h * w / window_size / window_size))",
+        "b = windows.shape[0] // (h * w // window_size // window_size)",
+    )
+
+    patched_path = file_path.with_suffix(".patched.py")
+    if (not patched_path.exists()) or patched_path.read_text() != patched_source:
+        patched_path.write_text(patched_source)
+
+    spec = importlib.util.spec_from_file_location(module_name, patched_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Impossible de construire le spec pour {patched_path}")
+
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = mod
+    spec.loader.exec_module(mod)
+    return mod
 
 
 def parse_args() -> argparse.Namespace:
@@ -88,6 +137,41 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _resolve_vendor_arch(
+    repo_root: str,
+    rel_path: str,
+    module_name: str,
+    class_name: str,
+) -> type:
+    """Localise et charge une classe d'architecture dans un repo cloné.
+
+    Évite le passage par le paquet parent (``drct/__init__.py`` ou
+    ``hat/__init__.py``) qui importe des modules de data ayant besoin
+    de cv2, alors qu'on n'a besoin que de l'architecture.
+    """
+    arch_file = Path(repo_root) / rel_path
+    module = _load_arch_module(arch_file, module_name)
+    cls = getattr(module, class_name, None)
+    if cls is None:
+        raise ImportError(f"{class_name} introuvable dans {arch_file}")
+    return cls  # type: ignore[no-any-return]
+
+
+def _vendor_root(env_var: str, default_rel: str) -> str:
+    """Retourne le chemin racine d'un repo cloné (DRCT ou HAT).
+
+    Le chemin peut être surchargé via variable d'env (utile en CI),
+    sinon on prend ``vendor/<default_rel>`` à côté du repo courant.
+    """
+    import os
+
+    override = os.environ.get(env_var)
+    if override:
+        return override
+    here = Path(__file__).resolve().parent.parent
+    return str(here / "vendor" / default_rel)
+
+
 def build_drct_l_model(scale: int):
     """Construit une instance DRCT-L avec les hyperparametres officiels.
 
@@ -98,18 +182,18 @@ def build_drct_l_model(scale: int):
         Instance ``torch.nn.Module`` de l'architecture DRCT-L.
 
     Raises:
-        ImportError: Si le package ``drct`` n'est pas disponible.
+        ImportError: Si le fichier d'architecture est introuvable.
     """
-    try:
-        from drct.archs.DRCT_arch import DRCT  # type: ignore[import-not-found]
-    except ImportError as exc:
-        raise ImportError(
-            "Le package drct n'est pas installe. "
-            "Cloner https://github.com/ming053l/DRCT et ajouter le dossier drct/ "
-            "au PYTHONPATH, ou installer via pip install -e <chemin>.",
-        ) from exc
+    drct_cls = _resolve_vendor_arch(
+        repo_root=_vendor_root("DRCT_REPO", "drct-repo"),
+        rel_path="drct/archs/DRCT_arch.py",
+        module_name="drct_arch_mod",
+        class_name="DRCT",
+    )
 
-    return DRCT(
+    # DRCT-L : 12 RSTB blocks (vs 6 pour DRCT standard). Les depths et
+    # num_heads doivent matcher exactement le checkpoint officiel.
+    return drct_cls(
         upscale=scale,
         in_chans=3,
         img_size=64,
@@ -119,9 +203,9 @@ def build_drct_l_model(scale: int):
         conv_scale=0.01,
         overlap_ratio=0.5,
         img_range=1.0,
-        depths=[6, 6, 6, 6, 6, 6],
+        depths=[6] * 12,
         embed_dim=180,
-        num_heads=[6, 6, 6, 6, 6, 6],
+        num_heads=[6] * 12,
         mlp_ratio=2,
         upsampler="pixelshuffle",
         resi_connection="1conv",
@@ -138,18 +222,18 @@ def build_hat_l_model(scale: int):
         Instance ``torch.nn.Module`` de l'architecture HAT-L.
 
     Raises:
-        ImportError: Si le package ``hat`` n'est pas disponible.
+        ImportError: Si le fichier d'architecture est introuvable.
     """
-    try:
-        from hat.archs.hat_arch import HAT  # type: ignore[import-not-found]
-    except ImportError as exc:
-        raise ImportError(
-            "Le package hat n'est pas installe. "
-            "Cloner https://github.com/XPixelGroup/HAT et ajouter le dossier hat/ "
-            "au PYTHONPATH, ou installer via pip install -e <chemin>.",
-        ) from exc
+    hat_cls = _resolve_vendor_arch(
+        repo_root=_vendor_root("HAT_REPO", "hat-repo"),
+        rel_path="hat/archs/hat_arch.py",
+        module_name="hat_arch_mod",
+        class_name="HAT",
+    )
 
-    return HAT(
+    # HAT-L : 12 RHAG blocks (vs 6 pour HAT standard). Mêmes hyperparams
+    # que DRCT-L côté embed_dim / window_size / heads.
+    return hat_cls(
         upscale=scale,
         in_chans=3,
         img_size=64,
@@ -159,9 +243,9 @@ def build_hat_l_model(scale: int):
         conv_scale=0.01,
         overlap_ratio=0.5,
         img_range=1.0,
-        depths=[6, 6, 6, 6, 6, 6],
+        depths=[6] * 12,
         embed_dim=180,
-        num_heads=[6, 6, 6, 6, 6, 6],
+        num_heads=[6] * 12,
         mlp_ratio=2,
         upsampler="pixelshuffle",
         resi_connection="1conv",
@@ -224,11 +308,14 @@ def convert_model(
             "coremltools et torch sont requis. Installer avec : uv add coremltools torch",
         ) from exc
 
-    # Trace du modele avec une entree factice de la bonne shape.
     example_input = torch.randn(1, 3, tile_size, tile_size)
+
+    # `torch.jit.trace` avec DRCT/HAT produit un `int(tensor / ...)` qui
+    # casse coremltools ; `torch.export` casse parce que DRCT mute
+    # `self.mean` pendant le forward. On applique donc un patch local
+    # (cf. `_patch_window_reverse_*`) puis on utilise le trace classique.
     traced_model = torch.jit.trace(model, example_input)
 
-    # Conversion vers Core ML Program (format .mlpackage moderne).
     compute_precision = ct.precision.FLOAT16 if precision == "fp16" else ct.precision.FLOAT32
 
     mlmodel = ct.convert(
