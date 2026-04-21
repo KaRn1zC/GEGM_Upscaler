@@ -1,0 +1,78 @@
+name: RunPod Worker Build
+
+# Build + push l'image Docker du handler RunPod sur Docker Hub.
+# Declenche sur les tags `runpod-v*.*.*` (separes des tags backend `v*.*.*`)
+# pour pouvoir versionner le worker GPU independamment du backend.
+#
+# Prerequis (secrets du repo) :
+#   - DOCKERHUB_USERNAME : nom d'utilisateur Docker Hub
+#   - DOCKERHUB_TOKEN    : token d'acces Docker Hub avec scope Read+Write
+#
+# RunPod Serverless ne sait pas s'authentifier aupres de GHCR prive,
+# d'ou Docker Hub public pour l'image du worker (vs GHCR pour le backend).
+
+on:
+  push:
+    tags:
+      - "runpod-v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag a publier (ex: runpod-v1.9)"
+        required: true
+        type: string
+
+concurrency:
+  group: runpod-worker-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE_NAME: ${{ vars.DOCKERHUB_USERNAME || secrets.DOCKERHUB_USERNAME }}/gegm-upscaler-worker
+
+jobs:
+  build-and-push:
+    name: Build + Push Docker Hub (amd64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          # Tags attendus : runpod-v1.9 -> "1.9", "v1.9", "latest" (si main).
+          # Le pattern strip le prefixe "runpod-" pour que les tags Docker
+          # soient propres (v1.9 au lieu de runpod-v1.9).
+          tags: |
+            type=match,pattern=runpod-v(.*),group=1,prefix=v
+            type=match,pattern=runpod-v(\d+\.\d+\.?\d*),group=1
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push (linux/amd64)
+        uses: docker/build-push-action@v7
+        with:
+          context: runpod-worker
+          file: runpod-worker/Dockerfile
+          # RunPod Serverless tourne uniquement sur GPU x86 : pas besoin
+          # d'arm64 (gain de ~15 min de build en emulation QEMU).
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=runpod-worker
+          cache-to: type=gha,mode=max,scope=runpod-worker

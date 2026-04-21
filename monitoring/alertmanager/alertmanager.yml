@@ -1,0 +1,40 @@
+# Alertmanager — configuration minimale pour le dev local.
+#
+# En prod, remplacer le receiver ``dev-null`` par les vrais canaux de
+# notification (Slack, email, PagerDuty, webhook custom vers l'infra GEGM).
+# Cf. https://prometheus.io/docs/alerting/latest/configuration/
+
+global:
+  resolve_timeout: 5m
+
+route:
+  # Le receiver par défaut groupe les alertes par composant pour éviter
+  # le bruit si plusieurs alertes se déclenchent simultanément.
+  group_by: ["alertname", "component"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: dev-null
+
+  # Routes spécifiques — à enrichir en prod (critical → PagerDuty, etc.).
+  routes:
+    - match:
+        severity: critical
+      receiver: dev-null
+      group_wait: 10s
+      repeat_interval: 1h
+
+receivers:
+  # Receiver dev — absorbe les alertes sans les envoyer nulle part.
+  # En prod, créer des receivers type ``slack_configs``, ``email_configs``,
+  # ``pagerduty_configs``, ``webhook_configs``.
+  - name: dev-null
+
+inhibit_rules:
+  # Une alerte ``critical`` sur un composant masque les ``warning`` du même
+  # composant — évite le spam quand tout est en vrac.
+  - source_match:
+      severity: critical
+    target_match:
+      severity: warning
+    equal: ["alertname", "component"]

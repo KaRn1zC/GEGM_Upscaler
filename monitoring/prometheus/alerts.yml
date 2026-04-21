@@ -1,0 +1,126 @@
+# Règles d'alerting Prometheus pour GEGM Upscaler.
+#
+# Chaque groupe définit un ensemble d'alertes avec un seuil et une durée de
+# franchissement avant déclenchement. Les alertes sont routées vers
+# Alertmanager (cf. prometheus.yml ``alerting.alertmanagers``) qui gère
+# la notification (Slack, email, etc.) — à configurer en prod selon les
+# canaux GEGM.
+
+groups:
+  # ──────────────────────────────────────────────────────────────
+  # Pipeline d'upscaling — métriques métier
+  # ──────────────────────────────────────────────────────────────
+  - name: upscale_pipeline
+    interval: 30s
+    rules:
+      - alert: UpscaleHighFailureRate
+        # Taux d'échec > 5 % sur une fenêtre glissante de 5 min.
+        # Le ``> 0`` au dénominateur évite la division par 0 quand aucun
+        # job n'est lancé sur la période.
+        expr: |
+          (
+            sum(rate(upscale_jobs_total{status="failed"}[5m]))
+            /
+            sum(rate(upscale_jobs_total[5m])) > 0
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          component: upscale
+        annotations:
+          summary: "Taux d'échec upscale élevé (> 5 %)"
+          description: |
+            {{ $value | humanizePercentage }} des jobs d'upscaling ont échoué
+            ces 5 dernières minutes. Vérifier RunPod / GPU local / stockage.
+
+      - alert: UpscaleDurationP95High
+        # Latence P95 (5 min rolling) au-dessus de 15 min → signal d'un
+        # problème cold-start chronique ou d'un GPU instable.
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le, backend, model) (rate(upscale_duration_seconds_bucket[5m]))
+          ) > 900
+        for: 10m
+        labels:
+          severity: warning
+          component: upscale
+        annotations:
+          summary: "P95 durée upscale > 15 min ({{ $labels.backend }}/{{ $labels.model }})"
+          description: |
+            Le 95e percentile des durées d'upscale dépasse 15 min sur les
+            5 dernières minutes. Cold-start RunPod persistant ou modèle
+            anormalement lent.
+
+  # ──────────────────────────────────────────────────────────────
+  # Celery (via celery-exporter)
+  # ──────────────────────────────────────────────────────────────
+  - name: celery_workers
+    interval: 30s
+    rules:
+      - alert: CeleryQueueBacklog
+        # Plus de 10 tâches en attente → surcharge ou panne de worker.
+        expr: sum(celery_queue_length) > 10
+        for: 3m
+        labels:
+          severity: warning
+          component: celery
+        annotations:
+          summary: "Queue Celery saturée (> 10 tâches en attente)"
+          description: |
+            La queue Celery a {{ $value }} tâche(s) en attente depuis 3 min.
+            Vérifier le nombre de workers actifs ou des tâches bloquées.
+
+      - alert: CeleryNoWorkers
+        # Aucun worker actif — alerte critique.
+        expr: sum(celery_active_worker_count) == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: celery
+        annotations:
+          summary: "Aucun worker Celery actif"
+          description: |
+            Aucun worker Celery n'est enregistré depuis 2 min.
+            Les jobs d'upscaling vont s'accumuler dans Redis.
+
+  # ──────────────────────────────────────────────────────────────
+  # API FastAPI (via prometheus-fastapi-instrumentator)
+  # ──────────────────────────────────────────────────────────────
+  - name: api_http
+    interval: 30s
+    rules:
+      - alert: ApiHighLatency
+        # Latence P95 HTTP > 5s → anomalie côté API.
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le, handler) (rate(http_request_duration_seconds_bucket[5m]))
+          ) > 5
+        for: 5m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "Latence API P95 > 5 s sur {{ $labels.handler }}"
+          description: |
+            Le 95e percentile de la latence HTTP sur l'endpoint
+            {{ $labels.handler }} dépasse 5 s depuis 5 min.
+
+      - alert: ApiHighErrorRate
+        # Taux d'erreurs 5xx > 1 % sur 5 min.
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total[5m])) > 0
+          ) > 0.01
+        for: 5m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "Taux d'erreurs 5xx API > 1 %"
+          description: |
+            {{ $value | humanizePercentage }} des réponses HTTP sont en 5xx
+            sur les 5 dernières minutes.

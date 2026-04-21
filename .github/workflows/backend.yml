@@ -27,6 +27,42 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
+    # Services d'infrastructure pour les tests DB (uploads, jobs, users,
+    # cleanup, pipeline_chain). Correspondent a la config docker-compose
+    # locale : user/password/db "upscaler" et Redis par defaut.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: upscaler
+          POSTGRES_PASSWORD: upscaler
+          POSTGRES_DB: upscaler
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U upscaler"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      # Les tests Pydantic Settings lisent ces variables au demarrage.
+      DATABASE_URL: postgresql+asyncpg://upscaler:upscaler@localhost:5432/upscaler
+      REDIS_URL: redis://localhost:6379/0
+      STORAGE_BACKEND: local
+      LOCAL_STORAGE_PATH: /tmp/gegm-upscaler-ci
+      AUTH_BACKEND: static_token
+      DEV_AUTH_TOKEN: test-token
+
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -50,17 +86,12 @@ jobs:
       - name: Ruff format check
         run: uv run ruff format --check backend/
 
-      - name: Run tests (non-DB)
+      - name: Run Alembic migrations
+        run: uv run alembic upgrade head
+
+      - name: Run full test suite (backend)
         run: |
-          uv run pytest \
-            backend/tests/test_storage.py \
-            backend/tests/test_sse.py \
-            backend/tests/test_gpu_runpod.py \
-            backend/tests/test_router_gpu.py \
-            backend/tests/test_upscaling.py \
-            backend/tests/test_pipeline.py \
-            backend/tests/test_download.py \
-            backend/tests/test_new_backends.py \
+          uv run pytest backend/tests/ \
             --cov=backend/app \
             --cov-report=term-missing \
             --cov-report=xml

@@ -38,6 +38,7 @@ from loguru import logger
 from app.core.celery import celery_app
 from app.core.config import settings
 from app.core.gpu.interface import GPUBackend, GPUJobResult, GPUJobStatus
+from app.core.metrics import upscale_duration_seconds, upscale_jobs_total
 from app.jobs.progress_sync import (
     cleanup_progress_sync,
     get_sync_redis,
@@ -221,7 +222,11 @@ async def _step_upscale(job_id: str) -> None:
 
 
 async def _step_save(job_id: str) -> None:
-    """Étape 5 — finalisation DB (statut COMPLETED, dimensions, completed_at)."""
+    """Étape 5 — finalisation DB (statut COMPLETED, dimensions, completed_at).
+
+    Incrémente aussi les compteurs Prometheus custom (jobs_total + duration)
+    — la métrique est exposée via le serveur HTTP démarré par le worker.
+    """
     from app.jobs.models import Job, JobStatus
 
     async with _open_db_session() as session:
@@ -237,6 +242,14 @@ async def _step_save(job_id: str) -> None:
         job.progress = 1.0
         job.completed_at = datetime.now(UTC)
         await session.commit()
+
+        # Instrumentation Prometheus — on lit les champs avant fermeture de session.
+        backend = job.gpu_backend or "unknown"
+        model = job.model_name or "unknown"
+        duration = (job.completed_at - job.created_at).total_seconds()
+
+    upscale_jobs_total.labels(status="completed", backend=backend, model=model).inc()
+    upscale_duration_seconds.labels(backend=backend, model=model).observe(duration)
 
     redis = get_sync_redis()
     try:
@@ -373,6 +386,10 @@ async def _handle_pipeline_failure(job_id: str, error_message: str) -> None:
     """
     from app.jobs.models import Job, JobStatus
 
+    backend = "unknown"
+    model = "unknown"
+    marked_failed = False
+
     async with _open_db_session() as session:
         job = await session.get(Job, uuid.UUID(job_id))
         if job is None:
@@ -386,6 +403,15 @@ async def _handle_pipeline_failure(job_id: str, error_message: str) -> None:
         job.error_message = error_message
         job.completed_at = datetime.now(UTC)
         await session.commit()
+
+        backend = job.gpu_backend or "unknown"
+        model = job.model_name or "unknown"
+        marked_failed = True
+
+    # Instrumentation Prometheus — hors du bloc session pour éviter que la
+    # métrique soit incrémentée si le commit échoue (rare mais possible).
+    if marked_failed:
+        upscale_jobs_total.labels(status="failed", backend=backend, model=model).inc()
 
     redis = get_sync_redis()
     try:

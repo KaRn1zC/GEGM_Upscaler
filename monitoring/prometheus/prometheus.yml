@@ -5,14 +5,46 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
+# Fichiers de règles d'alerting — évalués à chaque ``evaluation_interval``.
+rule_files:
+  - "alerts.yml"
+
+# Alertmanager reçoit les alertes déclenchées par les règles.
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
 scrape_configs:
-  # Métriques FastAPI (via prometheus-fastapi-instrumentator).
+  # Métriques FastAPI (via prometheus-fastapi-instrumentator) — RPS, latence
+  # par endpoint, codes HTTP + compteurs custom `upscale_jobs_total`,
+  # `upscale_duration_seconds`.
   - job_name: "gegm-api"
     metrics_path: /metrics
     static_configs:
       - targets: ["api:8000"]
         labels:
           service: api
+
+  # Métriques Celery (via danihodovic/celery-exporter) — tâches par statut,
+  # durée par tâche, workers actifs, queue length. Alimente le dashboard
+  # Grafana `celery.json`.
+  - job_name: "gegm-celery"
+    static_configs:
+      - targets: ["celery-exporter:9808"]
+        labels:
+          service: celery
+
+  # Métriques custom exposées par les workers Celery eux-mêmes —
+  # `upscale_jobs_total{status,backend,model}` et `upscale_duration_seconds`.
+  # Le serveur HTTP est démarré dans chaque worker via un signal
+  # `worker_process_init` (cf. `app/core/celery.py`).
+  - job_name: "gegm-worker"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["worker:8001"]
+        labels:
+          service: worker
 
   # Métriques Prometheus lui-même (santé interne).
   - job_name: "prometheus"

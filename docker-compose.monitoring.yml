@@ -4,6 +4,7 @@
 services:
   loki:
     image: grafana/loki:3.4.3
+    restart: unless-stopped
     ports:
       - "3100:3100"
     volumes:
@@ -15,9 +16,15 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "0.5"
 
   promtail:
     image: grafana/promtail:3.4.3
+    restart: unless-stopped
     volumes:
       - ./monitoring/promtail/promtail.yml:/etc/promtail/config.yml:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -25,13 +32,20 @@ services:
     depends_on:
       loki:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+          cpus: "0.25"
 
   prometheus:
     image: prom/prometheus:v3.4.0
+    restart: unless-stopped
     ports:
       - "9090:9090"
     volumes:
       - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus-data:/prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
@@ -41,14 +55,37 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "0.5"
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    restart: unless-stopped
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+          cpus: "0.25"
 
   grafana:
     image: grafana/grafana:12.0.0
+    restart: unless-stopped
     ports:
       - "3000:3000"
     environment:
-      GF_SECURITY_ADMIN_USER: admin
-      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
       GF_USERS_ALLOW_SIGN_UP: "false"
     volumes:
       - ./monitoring/grafana/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
@@ -60,9 +97,15 @@ services:
         condition: service_healthy
       loki:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "0.5"
 
   flower:
     image: mher/flower:2.0.1
+    restart: unless-stopped
     ports:
       - "5555:5555"
     environment:
@@ -70,8 +113,31 @@ services:
       CELERY_RESULT_BACKEND: redis://redis:6379/0
     depends_on:
       - redis
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+          cpus: "0.25"
+
+  # Exporter Prometheus pour les métriques Celery (tâches, queue, workers).
+  # Fait vivre le dashboard `celery.json` déjà provisionné dans Grafana.
+  celery-exporter:
+    image: danihodovic/celery-exporter:0.11.3
+    restart: unless-stopped
+    ports:
+      - "9808:9808"
+    environment:
+      CE_BROKER_URL: redis://redis:6379/0
+    depends_on:
+      - redis
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+          cpus: "0.25"
 
 volumes:
   loki-data:
   prometheus-data:
   grafana-data:
+  alertmanager-data:
