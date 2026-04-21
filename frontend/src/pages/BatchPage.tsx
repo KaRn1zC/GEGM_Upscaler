@@ -4,12 +4,14 @@ import { Layers } from "lucide-react";
 import { BatchPanel } from "@/components/BatchPanel";
 import { JobCard } from "@/components/JobCard";
 import { useJobStore } from "@/stores/useJobStore";
+import { useSystemResources } from "@/hooks/useSystemResources";
 import type { ScaleFactor } from "@/lib/constants";
 
 const EASE_OUT_EXPO = [0.22, 1, 0.36, 1] as const;
 
 export function BatchPage() {
   const { jobs, fetchJobs, submitBatch, removeJob } = useJobStore();
+  const { refresh: refreshResources } = useSystemResources();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [lastBatchErrors, setLastBatchErrors] = useState<string[]>([]);
 
@@ -22,7 +24,17 @@ export function BatchPage() {
       setIsSubmitting(true);
       setLastBatchErrors([]);
       try {
-        const results = await submitBatch(files, scaleFactor);
+        // Verdict frais juste avant la soumission du batch — tous les jobs
+        // du batch partagent le même verdict (snapshot unique).
+        const verdict = await refreshResources();
+        const preferLocal = verdict ? verdict.can_run_local : false;
+
+        const results = await submitBatch(
+          files,
+          scaleFactor,
+          undefined,
+          preferLocal,
+        );
         const errors = results
           .filter((r) => r.error !== null)
           .map((r) => `${r.file.name} : ${r.error}`);
@@ -31,7 +43,7 @@ export function BatchPage() {
         setIsSubmitting(false);
       }
     },
-    [submitBatch],
+    [submitBatch, refreshResources],
   );
 
   const activeJobs = jobs.filter(

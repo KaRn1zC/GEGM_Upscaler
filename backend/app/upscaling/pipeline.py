@@ -136,6 +136,7 @@ async def _step_route(job_id: str) -> None:
             job.input_height,
             local_backend=local_backend,
             cloud_backend=cloud_backend,
+            prefer_local=job.prefer_local,
         )
 
         job.gpu_backend = "local" if gpu is local_backend else "cloud"

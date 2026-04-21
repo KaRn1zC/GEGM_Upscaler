@@ -15,6 +15,7 @@ export interface JobResponse {
   output_width: number | null;
   output_height: number | null;
   gpu_backend: string | null;
+  prefer_local: boolean | null;
   progress: number;
   error_message: string | null;
   created_at: string;
@@ -33,6 +34,7 @@ export interface JobCreateParams {
   input_key: string;
   scale_factor?: number;
   model_name?: string;
+  prefer_local?: boolean | null;
 }
 
 export interface UserResponse {

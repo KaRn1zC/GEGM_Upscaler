@@ -5,7 +5,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -80,6 +80,11 @@ class Job(Base):
 
     # -- Routage GPU --
     gpu_backend: Mapped[str | None] = mapped_column(String(20))
+    # Préférence frontend : ``True`` → tenter le local si image ≤ 5 MP ;
+    # ``False`` → forcer le cloud même pour les petites images ; ``None``
+    # → le routeur décide selon les dimensions seules (comportement legacy).
+    # Renseigné côté frontend via ``canRunLocalStrict()`` avant soumission.
+    prefer_local: Mapped[bool | None] = mapped_column(Boolean)
 
     # -- Progression --
     progress: Mapped[float] = mapped_column(Float, default=0.0)

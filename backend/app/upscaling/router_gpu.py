@@ -36,19 +36,31 @@ def select_gpu_backend(
     *,
     local_backend: GPUBackend | None,
     cloud_backend: GPUBackend | None,
+    prefer_local: bool | None = None,
 ) -> GPUBackend:
-    """Sélectionne le backend GPU approprié selon les dimensions de l'image.
+    """Sélectionne le backend GPU approprié selon les dimensions et la
+    préférence utilisateur.
 
     Logique de routage :
-    - Image ≤ 5 MP et backend local disponible → local.
-    - Image > 5 MP et backend cloud disponible → cloud.
-    - Fallback : si le backend préféré est indisponible, utiliser l'autre.
+
+    1. Si ``prefer_local=False`` (le frontend a détecté des ressources
+       insuffisantes sur la machine de l'utilisateur) → cloud forcé, quel
+       que soit le nombre de mégapixels.
+    2. Sinon, routage classique par taille :
+       - Image ≤ 5 MP : local si dispo, sinon cloud.
+       - Image > 5 MP : cloud si dispo, sinon local (dégradé).
+
+    ``prefer_local=None`` conserve le comportement legacy (routage par
+    taille seule) pour la rétro-compatibilité.
 
     Args:
         width: Largeur de l'image en pixels.
         height: Hauteur de l'image en pixels.
         local_backend: Backend GPU local (Core ML), ``None`` si non configuré.
         cloud_backend: Backend GPU cloud (RunPod), ``None`` si non configuré.
+        prefer_local: Préférence utilisateur calculée par le frontend
+            (cf. ``canRunLocalStrict()``). ``False`` force le cloud même
+            pour les petites images.
 
     Returns:
         Backend GPU sélectionné.
@@ -60,6 +72,19 @@ def select_gpu_backend(
 
     if local_backend is None and cloud_backend is None:
         raise RuntimeError("Aucun backend GPU disponible — vérifier la configuration")
+
+    # Préférence utilisateur explicite : cloud forcé malgré petite taille.
+    if prefer_local is False:
+        if cloud_backend is not None:
+            logger.info(
+                "Routage GPU → cloud (forcé par prefer_local=False) — {mp:.1f} MP",
+                mp=mp,
+            )
+            return cloud_backend
+        logger.warning(
+            "prefer_local=False mais backend cloud indisponible, fallback local",
+        )
+        return local_backend  # type: ignore[return-value]
 
     if mp <= LOCAL_MAX_MEGAPIXELS:
         if local_backend is not None:

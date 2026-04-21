@@ -17,6 +17,7 @@ import {
   Command as CommandIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { CapabilityBadge } from "@/components/CapabilityBadge";
 import { useGlobalShortcuts } from "@/hooks/useGlobalShortcuts";
 import { UpscalePage } from "@/pages/UpscalePage";
 import { BatchPage } from "@/pages/BatchPage";
@@ -117,13 +118,16 @@ function Sidebar() {
         ))}
       </nav>
 
-      {/* Hint palette + version */}
+      {/* Capability badge + hint palette + version */}
       <m.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.5, duration: 0.6 }}
         className="relative p-4 border-t border-border space-y-3"
       >
+        <div className="flex justify-center">
+          <CapabilityBadge />
+        </div>
         <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-card/60 border border-border/60">
           <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
             <CommandIcon className="w-3 h-3" strokeWidth={2} />

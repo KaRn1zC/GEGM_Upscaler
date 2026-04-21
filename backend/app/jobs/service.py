@@ -71,6 +71,7 @@ async def create_job(
         model_name=model_name,
         input_width=width,
         input_height=height,
+        prefer_local=payload.prefer_local,
     )
     db.add(job)
     await db.commit()

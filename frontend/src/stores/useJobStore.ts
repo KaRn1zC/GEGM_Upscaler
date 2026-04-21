@@ -18,11 +18,13 @@ interface JobStore {
     inputKey: string,
     scaleFactor: ScaleFactor,
     modelName?: string,
+    preferLocal?: boolean | null,
   ) => Promise<JobResponse>;
   submitBatch: (
     files: File[],
     scaleFactor: ScaleFactor,
     modelName?: string,
+    preferLocal?: boolean | null,
   ) => Promise<BatchItemResult[]>;
   updateJobProgress: (jobId: string, progress: number, status: string) => void;
   updateJobCompleted: (jobId: string, outputKey: string) => void;
@@ -44,17 +46,18 @@ export const useJobStore = create<JobStore>((set) => ({
     }
   },
 
-  submitJob: async (inputKey, scaleFactor, modelName) => {
+  submitJob: async (inputKey, scaleFactor, modelName, preferLocal) => {
     const job = await createJob({
       input_key: inputKey,
       scale_factor: scaleFactor,
       model_name: modelName,
+      prefer_local: preferLocal,
     });
     set((s) => ({ jobs: [job, ...s.jobs] }));
     return job;
   },
 
-  submitBatch: async (files, scaleFactor, modelName) => {
+  submitBatch: async (files, scaleFactor, modelName, preferLocal) => {
     // Upload + création de job en parallèle pour chaque fichier.
     // On capture les erreurs individuellement pour que l'échec d'un
     // fichier ne bloque pas les autres.
@@ -67,6 +70,7 @@ export const useJobStore = create<JobStore>((set) => ({
             input_key: uploaded.key,
             scale_factor: scaleFactor,
             model_name: modelName,
+            prefer_local: preferLocal,
           });
           newJobs.push(job);
           return { file, jobId: job.id, error: null };

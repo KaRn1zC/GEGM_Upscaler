@@ -15,11 +15,18 @@ class JobCreate(BaseModel):
         scale_factor: Facteur de multiplication des dimensions (2x ou 4x).
         model_name: Modèle de super-résolution à utiliser. Si ``None``, le modèle
             par défaut du serveur est utilisé (``UPSCALE_MODEL`` dans ``.env``).
+        prefer_local: Préférence utilisateur pour le routage GPU, calculée
+            côté frontend via ``canRunLocalStrict()``. ``True`` = tenter le
+            Core ML local (si image ≤ 5 MP et backend dispo) ; ``False`` =
+            forcer le cloud (RunPod) même pour les petites images. ``None``
+            laisse le routeur décider selon les dimensions uniquement
+            (comportement legacy).
     """
 
     input_key: str
     scale_factor: Literal[2, 4] = 4
     model_name: Literal["drct-l", "hat-l"] | None = None
+    prefer_local: bool | None = None
 
 
 class JobResponse(BaseModel):
@@ -42,6 +49,7 @@ class JobResponse(BaseModel):
     output_width: int | None
     output_height: int | None
     gpu_backend: str | None
+    prefer_local: bool | None
     progress: float
     error_message: str | None
     created_at: datetime

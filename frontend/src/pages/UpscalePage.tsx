@@ -6,6 +6,7 @@ import { JobCard } from "@/components/JobCard";
 import { CompareSlider } from "@/components/CompareSlider";
 import { useUpload } from "@/hooks/useUpload";
 import { useSSE } from "@/hooks/useSSE";
+import { useSystemResources } from "@/hooks/useSystemResources";
 import { useJobStore } from "@/stores/useJobStore";
 import { cn } from "@/lib/utils";
 import { MODEL_OPTIONS, SCALE_FACTORS, type ScaleFactor } from "@/lib/constants";
@@ -15,6 +16,7 @@ const EASE_OUT_EXPO = [0.22, 1, 0.36, 1] as const;
 
 export function UpscalePage() {
   const { isUploading, progress: uploadProgress, upload } = useUpload();
+  const { refresh: refreshResources } = useSystemResources();
   const {
     jobs,
     fetchJobs,
@@ -63,14 +65,24 @@ export function UpscalePage() {
   const handleFile = useCallback(
     async (file: File) => {
       try {
+        // Refresh juste avant la soumission pour un verdict au plus près
+        // de l'état réel (le polling 15 s peut avoir un snapshot trop vieux).
+        const verdict = await refreshResources();
+        const preferLocal = verdict ? verdict.can_run_local : false;
+
         const uploaded = await upload(file);
-        const job = await submitJob(uploaded.key, scaleFactor, modelName);
+        const job = await submitJob(
+          uploaded.key,
+          scaleFactor,
+          modelName,
+          preferLocal,
+        );
         setActiveJobId(job.id);
       } catch {
         // Erreur gérée par useUpload.
       }
     },
-    [upload, submitJob, scaleFactor, modelName],
+    [upload, submitJob, scaleFactor, modelName, refreshResources],
   );
 
   const activeJobs = jobs.filter(
