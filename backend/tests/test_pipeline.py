@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.core.gpu.interface import GPUJobResult, GPUJobStatus
-from app.jobs.tasks import (
+from app.upscaling.pipeline import (
     _build_output_key,
     _extract_output_bytes,
     _try_build_cloud_backend,
@@ -46,7 +46,7 @@ def test_should_replace_only_first_occurrence() -> None:
 
 def test_should_return_none_when_model_file_missing() -> None:
     """Sans fichier modèle, le backend local doit retourner None."""
-    with patch("app.jobs.tasks.settings") as mock_settings:
+    with patch("app.upscaling.pipeline.settings") as mock_settings:
         mock_settings.COREML_MODEL_DIR = "/nonexistent/path"
         assert _try_build_local_backend("drct-l") is None
 
@@ -58,7 +58,7 @@ def test_should_return_none_when_coremltools_missing(tmp_path: object) -> None:
     fake_model.touch()
 
     with (
-        patch("app.jobs.tasks.settings") as mock_settings,
+        patch("app.upscaling.pipeline.settings") as mock_settings,
         patch(
             "app.core.gpu.local_coreml.CoreMLBackend",
             side_effect=ImportError("no coremltools"),
@@ -75,7 +75,7 @@ def test_should_return_none_when_coremltools_missing(tmp_path: object) -> None:
 
 def test_should_return_none_without_runpod_credentials() -> None:
     """Sans clé API ou endpoint ID, le backend cloud doit retourner None."""
-    with patch("app.jobs.tasks.settings") as mock_settings:
+    with patch("app.upscaling.pipeline.settings") as mock_settings:
         mock_settings.RUNPOD_API_KEY.get_secret_value.return_value = ""
         mock_settings.RUNPOD_ENDPOINT_ID = ""
         assert _try_build_cloud_backend() is None
@@ -83,7 +83,7 @@ def test_should_return_none_without_runpod_credentials() -> None:
 
 def test_should_build_runpod_backend_when_configured() -> None:
     """Avec credentials valides, le backend cloud doit être instancié."""
-    with patch("app.jobs.tasks.settings") as mock_settings:
+    with patch("app.upscaling.pipeline.settings") as mock_settings:
         mock_settings.RUNPOD_API_KEY.get_secret_value.return_value = "test-key"
         mock_settings.RUNPOD_ENDPOINT_ID = "test-endpoint"
 
@@ -169,7 +169,7 @@ async def test_should_raise_on_timeout() -> None:
 
     # Patch asyncio.sleep pour accélérer le test.
     with (
-        patch("app.jobs.tasks.asyncio.sleep", new_callable=AsyncMock),
+        patch("app.upscaling.pipeline.asyncio.sleep", new_callable=AsyncMock),
         pytest.raises(TimeoutError, match="n'a pas abouti"),
     ):
         await _wait_for_gpu_result(mock_gpu, "job-123")
