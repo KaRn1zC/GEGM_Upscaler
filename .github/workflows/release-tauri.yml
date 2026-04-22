@@ -74,8 +74,10 @@ jobs:
           projectPath: frontend
           # `__VERSION__` est remplacé par `tauri-action` avec la version
           # lue dans package.json — évite d'injecter `github.ref_name`
-          # dans un champ sensible.
-          tagName: __VERSION__
+          # dans un champ sensible. Le préfixe `v` matche le git tag
+          # que l'utilisateur pousse (`v0.1.0`), évite d'avoir deux tags
+          # séparés (`0.1.0` côté release + `v0.1.0` côté git push).
+          tagName: v__VERSION__
           releaseName: "GEGM Upscaler v__VERSION__"
           releaseBody: |
             ## Installation
