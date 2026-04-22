@@ -51,6 +51,11 @@ class Settings(BaseSettings):
     # anciens que ce seuil sont supprimés par la tâche Celery Beat
     # ``jobs.cleanup.cleanup_old_jobs``.
     STORAGE_RETENTION_DAYS: int = 30
+    # Seuil au-delà duquel un job bloqué en PROCESSING (sans update
+    # ``updated_at``) est considéré comme zombie et marqué FAILED par la
+    # tâche Beat ``jobs.reaper.reap_stale_jobs``. 30 min couvre les pires
+    # cold-starts RunPod (~15 min) + une marge de sécurité.
+    STALE_JOB_THRESHOLD_MINUTES: int = 30
 
     # ── Auth ─────────────────────────────────────────────────────
     AUTH_BACKEND: Literal["static_token", "oidc"] = "static_token"

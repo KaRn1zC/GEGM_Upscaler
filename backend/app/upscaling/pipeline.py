@@ -156,10 +156,17 @@ async def _step_upscale(job_id: str) -> None:
     (``autoretry_for`` sur ``task_upscale``) couvre les erreurs réseau
     transitoires (ConnectionError, TimeoutError) typiques des cold starts
     RunPod ou coupures réseau ponctuelles.
+
+    Guard CANCELLED : on relit ``job.status`` à deux moments :
+    (1) en entrée d'étape — évite de lancer une inférence pour un job
+        déjà annulé pendant sa file d'attente Celery,
+    (2) juste avant le commit final (après download du résultat) — évite
+        qu'un ``CANCELLED`` arrivé pendant l'inférence soit écrasé par
+        l'écriture de ``output_key``.
     """
     from app.core.dependencies import get_storage
     from app.core.gpu.interface import UpscaleParams
-    from app.jobs.models import Job
+    from app.jobs.models import Job, JobStatus
 
     storage = get_storage()
     redis = get_sync_redis()
@@ -169,6 +176,13 @@ async def _step_upscale(job_id: str) -> None:
             job = await session.get(Job, uuid.UUID(job_id))
             if job is None:
                 raise ValueError(f"Job {job_id} introuvable en DB")
+
+            if job.status == JobStatus.CANCELLED:
+                logger.info(
+                    "Job {jid} cancelled avant inférence — upscale skip",
+                    jid=job_id,
+                )
+                return
 
             # Re-construction du backend GPU choisi en étape 3.
             gpu = (
@@ -194,6 +208,15 @@ async def _step_upscale(job_id: str) -> None:
                 output_format="png",
             )
             gpu_job_id = await gpu.submit_job(image_data, params)
+
+            # Persister le ``run_id`` GPU immédiatement pour que
+            # ``cancel_job`` puisse le retrouver et appeler
+            # ``RunPodBackend.cancel(run_id)`` upstream. Sans ce commit
+            # intermédiaire, une annulation utilisateur pendant l'inférence
+            # laisserait RunPod facturer le job jusqu'à completion.
+            job.gpu_run_id = gpu_job_id
+            await session.commit()
+
             publish_progress_sync(
                 redis, job_id, status="processing", progress=0.40, step="inference"
             )
@@ -213,6 +236,18 @@ async def _step_upscale(job_id: str) -> None:
             output_key = _build_output_key(job.input_key)
             await storage.upload(output_key, output_bytes, "image/png")
 
+            # Re-check CANCELLED juste avant le commit final — un cancel
+            # arrivé pendant l'inférence RunPod ne doit pas être écrasé
+            # par l'écriture d'``output_key`` (ce qui ferait re-basculer
+            # le job en flow ``completed``).
+            await session.refresh(job)
+            if job.status == JobStatus.CANCELLED:
+                logger.info(
+                    "Job {jid} cancelled pendant inférence — output abandonné",
+                    jid=job_id,
+                )
+                return
+
             # Persister output_key pour que ``_step_save`` finalise ensuite.
             job.output_key = output_key
             await session.commit()
@@ -227,6 +262,10 @@ async def _step_save(job_id: str) -> None:
 
     Incrémente aussi les compteurs Prometheus custom (jobs_total + duration)
     — la métrique est exposée via le serveur HTTP démarré par le worker.
+
+    Guard CANCELLED : si le job a été annulé entre l'upscale et ce commit,
+    on short-circuite — ``job.status`` reste à ``CANCELLED`` et les
+    métriques ``completed`` ne sont pas incrémentées.
     """
     from app.jobs.models import Job, JobStatus
 
@@ -234,7 +273,16 @@ async def _step_save(job_id: str) -> None:
         job = await session.get(Job, uuid.UUID(job_id))
         if job is None:
             raise ValueError(f"Job {job_id} introuvable en DB")
+
+        if job.status == JobStatus.CANCELLED:
+            logger.info("Job {jid} cancelled — save skip", jid=job_id)
+            return
+
         if job.output_key is None:
+            # Normalement impossible si _step_upscale est allé jusqu'au bout,
+            # sauf si ce dernier a bail out sur CANCELLED. Dans ce cas, on
+            # ne doit pas avoir atteint _step_save (celery chain court-
+            # circuitée), mais par sûreté on gère quand même.
             raise RuntimeError(f"Job {job_id} sans output_key au moment du save")
 
         job.status = JobStatus.COMPLETED
@@ -260,30 +308,45 @@ async def _step_save(job_id: str) -> None:
 
 
 async def _step_notify(job_id: str) -> None:
-    """Étape 6 — publication finale ``completed`` + cleanup clé Redis."""
-    from app.jobs.models import Job
+    """Étape 6 — publication finale (``completed`` ou ``cancelled``) + cleanup Redis.
+
+    Publie un event SSE distinct selon l'état final du job pour que le
+    frontend puisse fermer le stream avec la bonne transition (évite
+    d'afficher "completed" sur un job annulé en cours de route).
+    """
+    from app.jobs.models import Job, JobStatus
 
     async with _open_db_session() as session:
         job = await session.get(Job, uuid.UUID(job_id))
         if job is None:
             raise ValueError(f"Job {job_id} introuvable en DB")
         output_key = job.output_key
+        final_status = job.status
 
     redis = get_sync_redis()
     try:
-        publish_progress_sync(
-            redis,
-            job_id,
-            status="completed",
-            progress=1.0,
-            step="done",
-            output_key=output_key,
-        )
+        if final_status == JobStatus.CANCELLED:
+            publish_progress_sync(
+                redis,
+                job_id,
+                status="cancelled",
+                progress=0.0,
+                step="cancelled",
+            )
+            logger.info("Job {jid} annulé — pipeline terminé proprement", jid=job_id)
+        else:
+            publish_progress_sync(
+                redis,
+                job_id,
+                status="completed",
+                progress=1.0,
+                step="done",
+                output_key=output_key,
+            )
+            logger.info("Job {jid} terminé avec succès", jid=job_id)
         cleanup_progress_sync(redis, job_id)
     finally:
         redis.close()
-
-    logger.info("Job {jid} terminé avec succès", jid=job_id)
 
 
 # ──────────────────────────────────────────────────────────────

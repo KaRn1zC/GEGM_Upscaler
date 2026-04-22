@@ -42,18 +42,30 @@ celery_app.conf.update(
     result_serializer="json",
     timezone="UTC",
     task_track_started=True,
-    # Planification Beat : cleanup quotidien à 03:00 UTC (heure creuse).
-    # Nécessite le process `celery beat` en plus du worker (voir docker-compose).
+    # Planification Beat. Nécessite le process `celery beat` en plus du
+    # worker (voir docker-compose). Les deux tâches sont idempotentes et
+    # peuvent tourner en parallèle sans risque.
     beat_schedule={
+        # Cleanup quotidien — supprime les jobs plus vieux que la rétention.
         "cleanup-old-jobs-daily": {
             "task": "jobs.cleanup_old_jobs",
-            "schedule": 60 * 60 * 24,  # 24h en secondes
+            "schedule": 60 * 60 * 24,  # 24h
+        },
+        # Reaper toutes les 5 min — marque FAILED les jobs processing zombies
+        # (cf. ``jobs.reaper`` : seuil configurable via
+        # ``STALE_JOB_THRESHOLD_MINUTES``).
+        "reap-stale-jobs": {
+            "task": "jobs.reap_stale_jobs",
+            "schedule": 60 * 5,  # 5 min
         },
     },
 )
 
-# Découverte automatique des tâches dans les modules métier.
+# Découverte automatique des tâches dans les modules métier. On importe
+# explicitement ``reaper`` pour que la tâche Beat soit enregistrée même
+# si ``autodiscover_tasks`` rate le module (timing de l'import).
 celery_app.autodiscover_tasks(["app.jobs"])
+from app.jobs import reaper as _reaper  # noqa: E402, F401
 
 
 @worker_process_init.connect

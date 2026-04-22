@@ -8,6 +8,7 @@ import uuid
 from io import BytesIO
 
 from fastapi import HTTPException
+from loguru import logger
 from PIL import Image
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -126,13 +127,12 @@ async def cancel_job(job_id: uuid.UUID, user: User, db: AsyncSession) -> None:
 
     Couvre aussi l'abandon d'un job en cours : utile pour stopper un upscale
     déjà long (cold-start RunPod prolongé) ou purger un orphelin laissé
-    par une crash précédente du worker.
+    par une crash précédente du worker. Si le job tournait sur RunPod (cloud),
+    un cancel upstream est envoyé pour stopper la facturation serverless.
 
-    Note : en cas d'annulation pendant `processing`, le pipeline Celery
-    continue son exécution RunPod. Pour que la transition `CANCELLED` reste
-    visible, le pipeline doit relire `job.status` avant chaque finalisation
-    DB et bail out si ``CANCELLED`` — sinon il écrase avec ``COMPLETED``.
-    TODO (H.2-bis) : ajouter ce guard dans ``jobs/tasks.py``.
+    Note : la protection côté pipeline contre l'écrasement de ``CANCELLED``
+    par un ``COMPLETED`` tardif est gérée par les guards dans
+    ``upscaling/pipeline.py`` (H.2-bis : guard CANCELLED).
 
     Args:
         job_id: Identifiant UUID du job à annuler.
@@ -153,5 +153,61 @@ async def cancel_job(job_id: uuid.UUID, user: User, db: AsyncSession) -> None:
             detail=f"Impossible d'annuler un job en statut '{job.status}'",
         )
 
+    # Snapshot des champs utiles avant de modifier l'état en DB — on les
+    # utilisera juste après pour l'éventuel cancel upstream RunPod.
+    gpu_backend = job.gpu_backend
+    gpu_run_id = job.gpu_run_id
+
     job.status = JobStatus.CANCELLED
     await db.commit()
+
+    # Cancel upstream RunPod — best-effort, ne fait pas planter le cancel
+    # côté app si RunPod est temporairement indispo. Sans ça, RunPod
+    # continuerait l'inférence jusqu'à completion et facturerait pour rien.
+    if gpu_backend == "cloud" and gpu_run_id:
+        await _cancel_runpod_upstream(gpu_run_id)
+
+
+async def _cancel_runpod_upstream(gpu_run_id: str) -> None:
+    """Appelle RunPod pour annuler un job serverless en cours.
+
+    Construit un ``RunPodBackend`` uniquement pour cette opération (léger,
+    pas besoin de singleton). Les erreurs sont loggées mais non propagées —
+    le cancel côté app doit toujours réussir même si RunPod est down.
+
+    Args:
+        gpu_run_id: Identifiant du job côté RunPod.
+    """
+    api_key = settings.RUNPOD_API_KEY.get_secret_value()
+    endpoint_id = settings.RUNPOD_ENDPOINT_ID
+    if not api_key or not endpoint_id:
+        logger.warning(
+            "Cancel upstream impossible — creds RunPod absents (run_id={rid})",
+            rid=gpu_run_id,
+        )
+        return
+
+    from app.core.gpu.runpod import RunPodBackend
+
+    backend = RunPodBackend(
+        api_key=api_key,
+        endpoint_id=endpoint_id,
+        s3_endpoint_url=settings.S3_OUTPUT_ENDPOINT_URL,
+        s3_bucket=settings.S3_OUTPUT_BUCKET,
+        s3_access_key=settings.S3_OUTPUT_ACCESS_KEY.get_secret_value(),
+        s3_secret_key=settings.S3_OUTPUT_SECRET_KEY.get_secret_value(),
+        s3_region=settings.S3_OUTPUT_REGION,
+    )
+    try:
+        await backend.cancel_job(gpu_run_id)
+        logger.info("Cancel upstream RunPod envoyé — run_id={rid}", rid=gpu_run_id)
+    except Exception as exc:
+        # Best-effort : on log mais on ne propage pas. Le reaper et/ou
+        # l'idle timeout RunPod finiront par nettoyer.
+        logger.warning(
+            "Cancel upstream RunPod échoué — run_id={rid} err={err}",
+            rid=gpu_run_id,
+            err=str(exc),
+        )
+    finally:
+        await backend.close()

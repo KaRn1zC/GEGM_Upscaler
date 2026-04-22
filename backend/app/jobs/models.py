@@ -50,6 +50,8 @@ class Job(Base):
         output_width: Largeur du résultat (renseigné après traitement).
         output_height: Hauteur du résultat (renseigné après traitement).
         gpu_backend: Backend d'inférence utilisé (``local`` ou ``cloud``).
+        gpu_run_id: Identifiant du job côté backend GPU (ex. ``run_id`` RunPod),
+            utilisé pour cancel upstream en cas d'annulation utilisateur.
         progress: Avancement du traitement, de 0.0 à 1.0.
         error_message: Détail de l'erreur en cas d'échec.
         created_at: Horodatage de soumission du job.
@@ -80,6 +82,12 @@ class Job(Base):
 
     # -- Routage GPU --
     gpu_backend: Mapped[str | None] = mapped_column(String(20))
+    # Identifiant du job côté backend GPU (ex. ``run_id`` RunPod retourné par
+    # ``submit_job``). Stocké pour permettre un cancel ciblé upstream : quand
+    # l'utilisateur annule en cours de traitement, on appelle
+    # ``RunPodBackend.cancel(gpu_run_id)`` pour stopper la facturation
+    # serverless au lieu de laisser le job tourner pour rien.
+    gpu_run_id: Mapped[str | None] = mapped_column(String(100))
     # Préférence frontend : ``True`` → tenter le local si image ≤ 5 MP ;
     # ``False`` → forcer le cloud même pour les petites images ; ``None``
     # → le routeur décide selon les dimensions seules (comportement legacy).

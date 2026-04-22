@@ -54,9 +54,7 @@ async def _run_cleanup_task() -> dict[str, int]:
 
     try:
         async with session_factory() as session:
-            return await cleanup_old_jobs(
-                session, settings.STORAGE_RETENTION_DAYS, storage=storage
-            )
+            return await cleanup_old_jobs(session, settings.STORAGE_RETENTION_DAYS, storage=storage)
     finally:
         await engine.dispose()
 
