@@ -1,0 +1,90 @@
+name: E2E Tests
+
+# Tests Playwright des parcours UI critiques (smoke + galerie + flow upscale).
+# Déclenché sur toute PR et sur push main qui touche le frontend. Aucun
+# backend réel requis — les mocks API via `page.route()` couvrent toutes
+# les interactions serveur. Suite complète en ~17s sur 4 workers.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/e2e.yml"
+  pull_request:
+    paths:
+      - "frontend/**"
+      - ".github/workflows/e2e.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  playwright:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend deps
+        working-directory: frontend
+        run: npm ci
+
+      # Cache des binaires Playwright Chromium — la version est lue depuis
+      # le package Playwright installé pour invalider le cache à chaque bump.
+      - name: Resolve Playwright version
+        id: pw-version
+        working-directory: frontend
+        run: |
+          version=$(node -p "require('./node_modules/@playwright/test/package.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw-version.outputs.version }}
+
+      - name: Install Playwright browsers (cache miss)
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        working-directory: frontend
+        run: npx playwright install chromium --with-deps
+
+      - name: Install Playwright OS deps (cache hit)
+        if: steps.pw-cache.outputs.cache-hit == 'true'
+        working-directory: frontend
+        run: npx playwright install-deps chromium
+
+      - name: Run E2E tests
+        working-directory: frontend
+        env:
+          CI: "true"
+        run: npm run test:e2e
+
+      # HTML report + screenshots/videos en cas d'échec — indispensables
+      # pour debugger un flake CI sans re-run local.
+      - name: Upload Playwright HTML report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 14
+
+      - name: Upload test-results (screenshots, videos, traces)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-test-results
+          path: frontend/test-results/
+          retention-days: 14
