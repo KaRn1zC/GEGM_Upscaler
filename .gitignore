@@ -21,6 +21,12 @@ frontend/src-tauri/tauri.key
 frontend/src-tauri/*.key
 !frontend/src-tauri/*.key.pub
 
+# Playwright E2E
+frontend/test-results/
+frontend/playwright-report/
+frontend/blob-report/
+frontend/playwright/.cache/
+
 # IDE
 .vscode/settings.json
 .vscode/launch.json
