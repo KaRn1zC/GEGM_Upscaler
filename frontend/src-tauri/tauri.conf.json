@@ -34,7 +34,7 @@
   "plugins": {
     "updater": {
       "active": true,
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDZERUUzQjYyRjA4NjQwQUEKUldTcVFJYndZanZ1YlJ5WkZtdHZBU2hxWFZyVGN6MG9KTUZtaWdDQmQ3M2dGMmRDRU9pM1lLNEkK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDU1MUQ1RkNENDQyNUM5QjQKUldTMHlTVkV6VjhkVlVFdmlOZ3A0dlkwdFNHWXAwakhjTCtTOFNGOWEzeDJqV08raEJXUzBTdHAK",
       "endpoints": [
         "https://github.com/KaRn1zC/GEGM_Upscaler/releases/latest/download/latest.json"
       ],
