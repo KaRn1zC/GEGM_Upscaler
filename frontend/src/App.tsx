@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CapabilityBadge } from "@/components/CapabilityBadge";
+import { UpdateBanner } from "@/components/UpdateBanner";
 import { useGlobalShortcuts } from "@/hooks/useGlobalShortcuts";
 import { useJobNotifications } from "@/hooks/useJobNotifications";
 import { UpscalePage } from "@/pages/UpscalePage";
@@ -198,6 +199,7 @@ export default function App() {
           <Suspense fallback={null}>
             <CommandPalette />
           </Suspense>
+          <UpdateBanner />
         </div>
       </BrowserRouter>
     </LazyMotion>

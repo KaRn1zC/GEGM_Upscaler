@@ -16,6 +16,11 @@ build/
 .env.production
 .env.staging
 
+# Tauri updater private key (doit rester local + GitHub Actions secret)
+frontend/src-tauri/tauri.key
+frontend/src-tauri/*.key
+!frontend/src-tauri/*.key.pub
+
 # IDE
 .vscode/settings.json
 .vscode/launch.json

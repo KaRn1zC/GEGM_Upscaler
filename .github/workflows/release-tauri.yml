@@ -1,0 +1,96 @@
+name: Release Tauri macOS
+
+# Build le bundle desktop macOS (aarch64 + x86_64) + le manifest updater
+# à chaque tag `v*.*.*`, puis publie tout dans une GitHub Release.
+#
+# Deux artefacts par plateforme :
+#   - `.dmg`       → installer téléchargeable (right-click → Ouvrir au 1er run)
+#   - `.app.tar.gz` + `.sig` → bundle mis à jour automatiquement par le Tauri
+#     updater (signature via la clé `TAURI_SIGNING_PRIVATE_KEY`, pas Apple).
+#
+# Un `latest.json` est généré par `tauri-action` et référence les deux archs
+# — c'est ce que le client Tauri fetch depuis `endpoints` de tauri.conf.json.
+#
+# Migration S3 OVH (cf. DISTRIBUTION.md) : ce workflow restera sans
+# changement ; seul `endpoints` dans tauri.conf.json basculera vers l'URL
+# du bucket OVH et un job d'upload additionnel sera ajouté.
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: write  # nécessaire pour créer la release + uploader les assets
+
+jobs:
+  build-macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: aarch64
+            target: aarch64-apple-darwin
+          - arch: x86_64
+            target: x86_64-apple-darwin
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: frontend/src-tauri -> target
+
+      - name: Install frontend deps
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build Tauri + sign updater + create release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Clé privée Tauri (pas Apple) pour signer le bundle updater.
+          # Générée localement via `tauri signer generate`, stockée en
+          # secret GitHub. La clé publique vit dans tauri.conf.json.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: frontend
+          # `__VERSION__` est remplacé par `tauri-action` avec la version
+          # lue dans package.json — évite d'injecter `github.ref_name`
+          # dans un champ sensible.
+          tagName: __VERSION__
+          releaseName: "GEGM Upscaler v__VERSION__"
+          releaseBody: |
+            ## Installation
+
+            1. Télécharge le `.dmg` correspondant à ton Mac :
+               - **Apple Silicon (M1/M2/M3/M4)** → `*_aarch64.dmg`
+               - **Intel Mac** → `*_x64.dmg`
+            2. Double-clique pour monter le `.dmg`, glisse l'app dans `/Applications`
+            3. Au **premier lancement uniquement** : clic-droit sur l'app → **Ouvrir**
+               (Gatekeeper demande confirmation car l'app n'est pas signée Apple).
+               Les lancements suivants et les mises à jour auto passent sans warning.
+
+            Les futures mises à jour s'installent automatiquement via l'updater
+            intégré (bannière en bas à droite de l'app).
+          releaseDraft: true
+          prerelease: false
+          args: --target ${{ matrix.target }}
+          includeUpdaterJson: true

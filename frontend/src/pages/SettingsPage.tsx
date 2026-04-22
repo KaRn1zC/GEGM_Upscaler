@@ -1,16 +1,19 @@
 import { useEffect, useState } from "react";
 import { m } from "motion/react";
-import { Check, Loader2, Server, User, Wrench, X } from "lucide-react";
+import { Check, Loader2, RefreshCw, Server, Sparkles, User, Wrench, X } from "lucide-react";
 import { getCurrentUser, getReadiness } from "@/lib/api";
 import type { HealthResponse, UserResponse } from "@/lib/api";
 import { MODEL_OPTIONS, SCALE_FACTORS, type ScaleFactor } from "@/lib/constants";
 import { usePreferences } from "@/hooks/usePreferences";
+import { useUpdaterStore } from "@/stores/useUpdaterStore";
+import { isTauri } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 
 const EASE_OUT_EXPO = [0.22, 1, 0.36, 1] as const;
 
 export function SettingsPage() {
   const { preferences, updatePreference, resetPreferences } = usePreferences();
+  const updater = useUpdaterStore();
   const [user, setUser] = useState<UserResponse | null>(null);
   const [userError, setUserError] = useState<string | null>(null);
   const [health, setHealth] = useState<HealthResponse | null>(null);
@@ -174,6 +177,58 @@ export function SettingsPage() {
           <p className="text-sm text-muted-foreground">Aucune information disponible</p>
         )}
       </Section>
+
+        {/* Mises à jour — visible uniquement dans Tauri */}
+        {isTauri() && (
+          <Section icon={Sparkles} title="Mises à jour">
+            <div className="space-y-3 text-sm">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="text-xs text-muted-foreground">
+                  {updater.phase === "checking" && "Vérification en cours…"}
+                  {updater.phase === "available" && updater.update && (
+                    <>
+                      <span className="text-primary font-medium">
+                        Nouvelle version disponible :
+                      </span>{" "}
+                      <span className="font-mono">v{updater.update.version}</span>
+                    </>
+                  )}
+                  {updater.phase === "idle" && updater.checkedOnce && (
+                    <>Aucune mise à jour disponible — tu es à jour.</>
+                  )}
+                  {updater.phase === "idle" && !updater.checkedOnce && (
+                    <>Cliquer pour vérifier manuellement les mises à jour.</>
+                  )}
+                  {updater.phase === "downloading" && "Téléchargement…"}
+                  {updater.phase === "installing" && "Installation…"}
+                  {updater.phase === "error" && (
+                    <span className="text-destructive/80">
+                      Erreur : {updater.error}
+                    </span>
+                  )}
+                </div>
+                <button
+                  onClick={() => void updater.checkNow()}
+                  disabled={updater.phase === "checking" || updater.phase === "downloading"}
+                  className={cn(
+                    "flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors",
+                    "border-border text-muted-foreground hover:text-foreground hover:border-primary/40",
+                    "disabled:opacity-50 disabled:cursor-not-allowed",
+                  )}
+                >
+                  <RefreshCw
+                    className={cn(
+                      "w-3.5 h-3.5",
+                      updater.phase === "checking" && "animate-spin",
+                    )}
+                    strokeWidth={2}
+                  />
+                  Vérifier maintenant
+                </button>
+              </div>
+            </div>
+          </Section>
+        )}
 
         {/* Infos build */}
         <Section icon={Wrench} title="À propos">
