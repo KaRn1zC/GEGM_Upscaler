@@ -73,13 +73,18 @@ const TINY_PNG_B64 =
  * par défaut au début du test — les specs peuvent surcharger via
  * `page.route()` direct pour les cas spéciaux (erreur 500, SSE stream, etc.).
  *
- * Note ESLint : la fixture utilise le callback `use` de Playwright (pas un
- * React hook) avec une signature `async (_fixtures, use)` — on désactive
- * localement `react-hooks/rules-of-hooks` qui n'est pas pertinent ici.
+ * Notes ESLint :
+ *   - `no-empty-pattern` : Playwright impose une destructuration d'objet
+ *     comme 1er arg de la fixture. Comme on n'utilise aucun fixture built-in
+ *     (page, browser…), on destructure `{}` vide — c'est le pattern
+ *     officiellement supporté par Playwright.
+ *   - `react-hooks/rules-of-hooks` : le callback `use` de Playwright n'est
+ *     pas un React hook, mais ESLint l'interprète comme tel à cause du nom.
  */
-/* eslint-disable react-hooks/rules-of-hooks -- Playwright `use` ≠ React hook */
+/* eslint-disable no-empty-pattern, react-hooks/rules-of-hooks --
+   Playwright fixture API — cf. docstring ci-dessus */
 export const test = base.extend<{ apiMocks: ApiMocks }>({
-  apiMocks: async (_fixtures, use) => {
+  apiMocks: async ({}, use) => {
     const state: ApiMocks = {
       jobs: [],
       tinyPng: () => Buffer.from(TINY_PNG_B64, "base64"),
