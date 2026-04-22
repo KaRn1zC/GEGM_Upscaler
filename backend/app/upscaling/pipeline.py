@@ -217,12 +217,25 @@ async def _step_upscale(job_id: str) -> None:
             job.gpu_run_id = gpu_job_id
             await session.commit()
 
+            # Snapshot des dims pour l'estimation de progression pendant
+            # l'inférence — on ne garde pas la session ouverte pendant les
+            # 30-120 s de polling RunPod.
+            input_mp = (job.input_width * job.input_height) / 1_000_000
+
             publish_progress_sync(
                 redis, job_id, status="processing", progress=0.40, step="inference"
             )
 
-            # Polling jusqu'à completion.
-            result = await _wait_for_gpu_result(gpu, gpu_job_id)
+            # Polling jusqu'à completion — le hook ``on_tick`` émet une
+            # progression continue entre 0.40 et 0.70 pour que la barre
+            # frontend ne reste pas figée pendant l'inférence RunPod.
+            result = await _wait_for_gpu_result(
+                gpu,
+                gpu_job_id,
+                redis=redis,
+                job_id=job_id,
+                input_mp=input_mp,
+            )
             if result.status != GPUJobStatus.COMPLETED:
                 raise RuntimeError(result.error or "Inférence GPU échouée")
 
@@ -589,16 +602,34 @@ def _try_build_cloud_backend() -> GPUBackend | None:
     )
 
 
-async def _wait_for_gpu_result(gpu: GPUBackend, gpu_job_id: str) -> GPUJobResult:
+async def _wait_for_gpu_result(
+    gpu: GPUBackend,
+    gpu_job_id: str,
+    *,
+    redis: object | None = None,
+    job_id: str | None = None,
+    input_mp: float = 1.0,
+) -> GPUJobResult:
     """Poll le statut du job GPU jusqu'à complétion ou échec.
 
     Backoff exponentiel : 0.5s → 1s → 2s → 4s → 5s constant.
     Si le job reste en QUEUED plus de 30s (cold start RunPod détecté),
     le polling ralentit à 10s et le timeout s'étend à 15 minutes.
 
+    Si ``redis`` et ``job_id`` sont fournis, émet une progression continue
+    entre 0.40 et 0.70 à chaque polling tick (step "inference"). Ça évite
+    que la barre frontend reste figée à 40 % pendant les 60-120 s
+    d'inférence RunPod côté happy path. L'estimation utilise la formule
+    ``60s de base + 50s/MP`` — conservatrice mais suffisante pour lisser
+    l'UX : si l'inférence va plus vite, la barre sursaute à 0.75 quand
+    l'output est téléchargé ; si elle traîne, la barre plafonne à 0.70.
+
     Args:
         gpu: Backend GPU qui a soumis le job.
         gpu_job_id: Identifiant retourné par ``submit_job``.
+        redis: Instance Redis sync pour publier la progression (optionnel).
+        job_id: UUID business du job, clé Redis (optionnel).
+        input_mp: Mégapixels de l'image source, pour caler la durée estimée.
 
     Returns:
         ``GPUJobResult`` final.
@@ -610,6 +641,11 @@ async def _wait_for_gpu_result(gpu: GPUBackend, gpu_job_id: str) -> GPUJobResult
     max_elapsed = 600.0  # 10 minutes par défaut
     elapsed = 0.0
     cold_start_detected = False
+
+    # Estimation de la durée d'inférence : 60s base + 50s par MP.
+    # Calibré sur les logs RunPod (1.78 MP ≈ 90-100s active inference).
+    estimated_duration = max(60.0, 60.0 + 50.0 * input_mp)
+    can_publish = redis is not None and job_id is not None
 
     while elapsed < max_elapsed:
         result = await gpu.get_job_status(gpu_job_id)
@@ -624,6 +660,20 @@ async def _wait_for_gpu_result(gpu: GPUBackend, gpu_job_id: str) -> GPUJobResult
             logger.info(
                 "Cold start détecté pour job GPU {id} — timeout étendu à 15 min",
                 id=gpu_job_id,
+            )
+
+        # Publication progressive entre 0.40 et 0.70 — linéaire sur la
+        # durée estimée, plafonnée si l'inférence dépasse. Omet les tics
+        # où on vient de publier la même valeur (évite de flooder Redis).
+        if can_publish:
+            fraction = min(elapsed / estimated_duration, 1.0)
+            tick_progress = 0.40 + (0.70 - 0.40) * fraction
+            publish_progress_sync(
+                redis,  # type: ignore[arg-type]
+                job_id,  # type: ignore[arg-type]
+                status="processing",
+                progress=round(tick_progress, 3),
+                step="inference",
             )
 
         # Polling plus lent en cold start pour ne pas surcharger l'API RunPod.
