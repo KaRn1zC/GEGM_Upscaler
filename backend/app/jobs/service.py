@@ -122,7 +122,17 @@ async def get_job(job_id: uuid.UUID, user: User, db: AsyncSession) -> Job:
 
 
 async def cancel_job(job_id: uuid.UUID, user: User, db: AsyncSession) -> None:
-    """Annule un job s'il est encore en attente (pending ou queued).
+    """Annule un job dans un état non-terminal (pending, queued, processing).
+
+    Couvre aussi l'abandon d'un job en cours : utile pour stopper un upscale
+    déjà long (cold-start RunPod prolongé) ou purger un orphelin laissé
+    par une crash précédente du worker.
+
+    Note : en cas d'annulation pendant `processing`, le pipeline Celery
+    continue son exécution RunPod. Pour que la transition `CANCELLED` reste
+    visible, le pipeline doit relire `job.status` avant chaque finalisation
+    DB et bail out si ``CANCELLED`` — sinon il écrase avec ``COMPLETED``.
+    TODO (H.2-bis) : ajouter ce guard dans ``jobs/tasks.py``.
 
     Args:
         job_id: Identifiant UUID du job à annuler.
@@ -131,11 +141,13 @@ async def cancel_job(job_id: uuid.UUID, user: User, db: AsyncSession) -> None:
 
     Raises:
         HTTPException: 404 si le job n'existe pas.
-        HTTPException: 409 si le job est déjà en cours ou terminé.
+        HTTPException: 409 si le job est déjà dans un état terminal
+            (completed, failed, cancelled).
     """
     job = await get_job(job_id, user, db)
 
-    if job.status not in {JobStatus.PENDING, JobStatus.QUEUED}:
+    non_cancellable = {JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED}
+    if job.status in non_cancellable:
         raise HTTPException(
             status_code=409,
             detail=f"Impossible d'annuler un job en statut '{job.status}'",

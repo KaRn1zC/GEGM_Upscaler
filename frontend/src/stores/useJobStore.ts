@@ -113,7 +113,15 @@ export const useJobStore = create<JobStore>((set) => ({
   },
 
   removeJob: async (jobId) => {
-    await cancelJob(jobId);
-    set((s) => ({ jobs: s.jobs.filter((j) => j.id !== jobId) }));
+    try {
+      await cancelJob(jobId);
+      set((s) => ({ jobs: s.jobs.filter((j) => j.id !== jobId) }));
+    } catch (err) {
+      // On log l'erreur plutôt que de la swaller silencieusement : si le
+      // backend refuse l'annulation (409 sur un job déjà terminé), l'UI
+      // affichait un clic sans effet, inexplicable côté utilisateur.
+      console.error(`[useJobStore] Échec annulation job ${jobId}:`, err);
+      throw err;
+    }
   },
 }));
