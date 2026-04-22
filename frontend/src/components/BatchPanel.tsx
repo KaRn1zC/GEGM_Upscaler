@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useImperativeHandle, useState, type Ref } from "react";
 import { m, AnimatePresence, Reorder } from "motion/react";
 import { useDropzone } from "react-dropzone";
 import { Upload, X, Play, Loader2 } from "lucide-react";
@@ -10,9 +10,21 @@ import {
   type ScaleFactor,
 } from "@/lib/constants";
 
+/**
+ * API impérative exposée par `BatchPanel` via ref.
+ *
+ * Permet au parent d'injecter des fichiers dans la queue sans passer par un
+ * flux de props (utilisé pour le drag-drop natif Tauri qui arrive au niveau
+ * fenêtre).
+ */
+export interface BatchPanelHandle {
+  addFiles: (files: File[]) => void;
+}
+
 interface BatchPanelProps {
   onSubmit: (files: File[], scaleFactor: ScaleFactor) => Promise<void>;
   isSubmitting: boolean;
+  ref?: Ref<BatchPanelHandle>;
 }
 
 interface QueuedFile {
@@ -21,7 +33,7 @@ interface QueuedFile {
   previewUrl: string;
 }
 
-export function BatchPanel({ onSubmit, isSubmitting }: BatchPanelProps) {
+export function BatchPanel({ onSubmit, isSubmitting, ref }: BatchPanelProps) {
   const [queue, setQueue] = useState<QueuedFile[]>([]);
   const [scaleFactor, setScaleFactor] = useState<ScaleFactor>(4);
 
@@ -33,6 +45,11 @@ export function BatchPanel({ onSubmit, isSubmitting }: BatchPanelProps) {
     }));
     setQueue((q) => [...q, ...newItems]);
   }, []);
+
+  // Expose une API impérative (`addFiles`) au parent — alimente la même
+  // queue que le drag-drop HTML5 interne. Consommée par `useTauriDragDrop`
+  // dans `BatchPage`.
+  useImperativeHandle(ref, () => ({ addFiles: onDrop }), [onDrop]);
 
   const removeItem = useCallback((id: string) => {
     setQueue((q) => {

@@ -19,6 +19,7 @@ import {
 import { cn } from "@/lib/utils";
 import { CapabilityBadge } from "@/components/CapabilityBadge";
 import { useGlobalShortcuts } from "@/hooks/useGlobalShortcuts";
+import { useJobNotifications } from "@/hooks/useJobNotifications";
 import { UpscalePage } from "@/pages/UpscalePage";
 import { BatchPage } from "@/pages/BatchPage";
 import { GalleryPage } from "@/pages/GalleryPage";
@@ -157,6 +158,10 @@ function AnimatedRoutes() {
 
   // Active les raccourcis clavier globaux ⌘1..⌘5 / ⌘U / ⌘B.
   useGlobalShortcuts();
+
+  // Diffuse les notifications macOS natives sur completion/échec des jobs
+  // (no-op hors runtime Tauri).
+  useJobNotifications();
 
   return (
     <AnimatePresence mode="wait" initial={false}>

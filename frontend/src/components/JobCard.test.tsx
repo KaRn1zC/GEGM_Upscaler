@@ -20,6 +20,7 @@ function makeJob(overrides: Partial<JobResponse> = {}): JobResponse {
     gpu_backend: null,
     progress: 0,
     error_message: null,
+    prefer_local: null,
     created_at: "2026-04-09T00:00:00Z",
     updated_at: "2026-04-09T00:00:00Z",
     completed_at: null,

@@ -1,17 +1,40 @@
-import { useCallback, useState } from "react";
+import { useCallback, useImperativeHandle, useState, type Ref } from "react";
 import { m, AnimatePresence } from "motion/react";
 import { useDropzone } from "react-dropzone";
-import { Upload, X, ImageIcon } from "lucide-react";
+import { Upload, X, ImageIcon, FolderOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   ACCEPTED_IMAGE_TYPES,
   MAX_FILE_SIZE_BYTES,
   MAX_FILE_SIZE_MB,
 } from "@/lib/constants";
+import { isTauri, readFileFromPath } from "@/lib/tauri";
+
+/**
+ * API impérative exposée par `DropZone` via ref.
+ *
+ * `acceptFile` : injecte un fichier comme si l'utilisateur l'avait glissé ou
+ * sélectionné via Parcourir (preview + callback `onFileAccepted`). Utilisé
+ * par le drag-drop natif Tauri qui arrive au niveau fenêtre.
+ *
+ * `clear` : remet la DropZone à son état vide (utile quand le parent vient
+ * de lancer l'upscale et veut libérer la zone pour une nouvelle sélection).
+ */
+export interface DropZoneHandle {
+  acceptFile: (file: File) => void;
+  clear: () => void;
+}
 
 interface DropZoneProps {
   onFileAccepted: (file: File) => void;
+  /**
+   * Appelé quand l'utilisateur retire manuellement l'image via le bouton X.
+   * Permet au parent de rester synchronisé (ex. clear d'un `pendingFile`
+   * en attente de lancement).
+   */
+  onFileCleared?: () => void;
   disabled?: boolean;
+  ref?: Ref<DropZoneHandle>;
 }
 
 interface PreviewState {
@@ -21,7 +44,12 @@ interface PreviewState {
   megapixels?: number;
 }
 
-export function DropZone({ onFileAccepted, disabled = false }: DropZoneProps) {
+export function DropZone({
+  onFileAccepted,
+  onFileCleared,
+  disabled = false,
+  ref,
+}: DropZoneProps) {
   const [preview, setPreview] = useState<PreviewState | null>(null);
 
   const onDrop = useCallback(
@@ -52,8 +80,9 @@ export function DropZone({ onFileAccepted, disabled = false }: DropZoneProps) {
     if (preview) {
       URL.revokeObjectURL(preview.url);
       setPreview(null);
+      onFileCleared?.();
     }
-  }, [preview]);
+  }, [preview, onFileCleared]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -62,6 +91,38 @@ export function DropZone({ onFileAccepted, disabled = false }: DropZoneProps) {
     multiple: false,
     disabled,
   });
+
+  // Expose une API impérative pour que le parent puisse injecter un fichier
+  // (drag-drop natif Tauri) ou forcer un reset visuel après lancement de
+  // l'upscale.
+  useImperativeHandle(
+    ref,
+    () => ({
+      acceptFile: (file: File) => onDrop([file]),
+      clear: clearPreview,
+    }),
+    [onDrop, clearPreview],
+  );
+
+  // Ouvre le dialog natif macOS via le plugin Tauri. Les types acceptés
+  // matchent ACCEPTED_IMAGE_TYPES (PNG, JPEG, WebP, TIFF). Le bouton est
+  // masqué hors contexte Tauri — en mode web, l'input invisible de
+  // react-dropzone suffit.
+  const handleBrowseNative = useCallback(async () => {
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    const selected = await open({
+      multiple: false,
+      directory: false,
+      filters: [
+        { name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "tif", "tiff"] },
+      ],
+    });
+    if (typeof selected !== "string") return;
+    const file = await readFileFromPath(selected);
+    if (file) onDrop([file]);
+  }, [onDrop]);
+
+  const showBrowseButton = isTauri();
 
   return (
     <AnimatePresence mode="wait" initial={false}>
@@ -191,6 +252,22 @@ export function DropZone({ onFileAccepted, disabled = false }: DropZoneProps) {
               <p className="mt-3 text-[10px] uppercase tracking-[0.22em] text-muted-foreground font-sans">
                 PNG · JPEG · WebP · TIFF · max {MAX_FILE_SIZE_MB} Mo
               </p>
+
+              {showBrowseButton && (
+                <m.button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void handleBrowseNative();
+                  }}
+                  whileHover={{ scale: 1.03 }}
+                  whileTap={{ scale: 0.97 }}
+                  disabled={disabled}
+                  className="mt-6 inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border/70 bg-card/60 backdrop-blur-sm text-[11px] uppercase tracking-[0.2em] text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors font-sans"
+                >
+                  <FolderOpen className="w-3.5 h-3.5" strokeWidth={1.8} />
+                  Parcourir
+                </m.button>
+              )}
             </div>
           </div>
         </m.div>

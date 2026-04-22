@@ -3,6 +3,7 @@ import { m } from "motion/react";
 import { Archive } from "lucide-react";
 import { JobCard } from "@/components/JobCard";
 import { getDownloadUrl } from "@/lib/api";
+import { downloadFile } from "@/lib/tauri";
 import { useJobStore } from "@/stores/useJobStore";
 
 const EASE_OUT_EXPO = [0.22, 1, 0.36, 1] as const;
@@ -95,7 +96,15 @@ export function HistoryPage() {
                   job={job}
                   onDownload={
                     job.status === "completed"
-                      ? () => window.open(getDownloadUrl(job.id), "_blank")
+                      ? () => {
+                          const filename = job.output_key
+                            ? job.output_key.split("/").pop() ?? "upscaled.jpg"
+                            : "upscaled.jpg";
+                          void downloadFile(
+                            getDownloadUrl(job.id),
+                            filename,
+                          );
+                        }
                       : undefined
                   }
                 />

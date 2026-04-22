@@ -1,6 +1,7 @@
 import { m } from "motion/react";
 import { Download, ZoomIn } from "lucide-react";
 import { getDownloadUrl, type JobResponse } from "@/lib/api";
+import { downloadFile } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 
 interface GalleryProps {
@@ -70,7 +71,12 @@ export function Gallery({ jobs, onZoom }: GalleryProps) {
                 </m.button>
               )}
               <m.button
-                onClick={() => window.open(getDownloadUrl(job.id), "_blank")}
+                onClick={() => {
+                  const filename = job.output_key
+                    ? job.output_key.split("/").pop() ?? "upscaled.jpg"
+                    : "upscaled.jpg";
+                  void downloadFile(getDownloadUrl(job.id), filename);
+                }}
                 whileHover={{ scale: 1.1 }}
                 whileTap={{ scale: 0.9 }}
                 transition={{ type: "spring", stiffness: 400, damping: 25 }}

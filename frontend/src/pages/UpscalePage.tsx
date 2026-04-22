@@ -1,16 +1,18 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { m, AnimatePresence } from "motion/react";
-import { Settings2 } from "lucide-react";
-import { DropZone } from "@/components/DropZone";
+import { Settings2, Sparkles } from "lucide-react";
+import { DropZone, type DropZoneHandle } from "@/components/DropZone";
 import { JobCard } from "@/components/JobCard";
 import { CompareSlider } from "@/components/CompareSlider";
 import { useUpload } from "@/hooks/useUpload";
 import { useSSE } from "@/hooks/useSSE";
 import { useSystemResources } from "@/hooks/useSystemResources";
+import { useTauriDragDrop } from "@/hooks/useTauriDragDrop";
 import { useJobStore } from "@/stores/useJobStore";
 import { cn } from "@/lib/utils";
 import { MODEL_OPTIONS, SCALE_FACTORS, type ScaleFactor } from "@/lib/constants";
 import { getDownloadUrl, getUploadUrl, type JobResponse } from "@/lib/api";
+import { downloadFile } from "@/lib/tauri";
 
 const EASE_OUT_EXPO = [0.22, 1, 0.36, 1] as const;
 
@@ -34,6 +36,17 @@ export function UpscalePage() {
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [compareJob, setCompareJob] = useState<JobResponse | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  // Fichier choisi (drop, Parcourir, drag-drop Tauri) en attente de
+  // lancement explicite via le bouton "Lancer l'upscale" — évite le run
+  // automatique qui piégeait l'utilisateur s'il voulait ajuster les settings.
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [isLaunching, setIsLaunching] = useState(false);
+  // Verrou synchrone anti-double-clic. Un `useState` n'est pas suffisant
+  // car React bat ches l'update : entre deux clics rapides, l'ancien
+  // `isLaunching=false` reste visible dans la closure. Le ref est lu et
+  // écrit de manière synchrone et préserve l'invariant "un seul run en vol".
+  const launchingRef = useRef(false);
+  const dropZoneRef = useRef<DropZoneHandle>(null);
 
   useEffect(() => {
     void fetchJobs();
@@ -62,28 +75,56 @@ export function UpscalePage() {
     ),
   });
 
-  const handleFile = useCallback(
-    async (file: File) => {
-      try {
-        // Refresh juste avant la soumission pour un verdict au plus près
-        // de l'état réel (le polling 15 s peut avoir un snapshot trop vieux).
-        const verdict = await refreshResources();
-        const preferLocal = verdict ? verdict.can_run_local : false;
+  // Déclenche upload + création de job. Appelé par le bouton "Lancer
+  // l'upscale" (et non plus directement par la DropZone). L'utilisateur a
+  // donc le temps d'ajuster scale_factor / model entre le choix du fichier
+  // et le lancement effectif.
+  //
+  // Verrouillage double : (1) `launchingRef` synchrone pour bloquer
+  // immédiatement tout fire supplémentaire pendant la fenêtre async
+  // `refreshResources → upload → submitJob`, (2) `isLaunching` pour griser
+  // le bouton côté UI. Sans ces deux garde-fous, un clic qui fired plusieurs
+  // fois (react strict mode, HMR, etc.) créait N jobs au lieu d'un seul.
+  const launchUpscale = useCallback(async () => {
+    if (launchingRef.current || !pendingFile || isUploading) return;
+    launchingRef.current = true;
+    setIsLaunching(true);
+    const file = pendingFile;
+    try {
+      // Refresh juste avant la soumission pour un verdict au plus près
+      // de l'état réel (le polling 15 s peut avoir un snapshot trop vieux).
+      const verdict = await refreshResources();
+      const preferLocal = verdict ? verdict.can_run_local : false;
 
-        const uploaded = await upload(file);
-        const job = await submitJob(
-          uploaded.key,
-          scaleFactor,
-          modelName,
-          preferLocal,
-        );
-        setActiveJobId(job.id);
-      } catch {
-        // Erreur gérée par useUpload.
-      }
-    },
-    [upload, submitJob, scaleFactor, modelName, refreshResources],
-  );
+      const uploaded = await upload(file);
+      const job = await submitJob(
+        uploaded.key,
+        scaleFactor,
+        modelName,
+        preferLocal,
+      );
+      setActiveJobId(job.id);
+      // Libère la DropZone pour la prochaine image — la preview disparaît,
+      // l'utilisateur peut enchaîner.
+      setPendingFile(null);
+      dropZoneRef.current?.clear();
+    } catch {
+      // Erreur gérée par useUpload.
+    } finally {
+      launchingRef.current = false;
+      setIsLaunching(false);
+    }
+  }, [pendingFile, isUploading, upload, submitJob, scaleFactor, modelName, refreshResources]);
+
+  // Drag-drop natif depuis Finder (Tauri) — en mode web le hook est no-op
+  // et react-dropzone prend le relais. On passe par l'API impérative de
+  // DropZone (`acceptFile`) pour que la preview s'affiche comme avec un
+  // drag-drop HTML5 ou un clic sur Parcourir.
+  const handleNativeDrop = useCallback((files: File[]) => {
+    const first = files[0];
+    if (first) dropZoneRef.current?.acceptFile(first);
+  }, []);
+  useTauriDragDrop(handleNativeDrop);
 
   const activeJobs = jobs.filter(
     (j) =>
@@ -150,7 +191,38 @@ export function UpscalePage() {
           transition={{ duration: 0.8, delay: 0.1, ease: EASE_OUT_EXPO }}
           className="mb-12"
         >
-          <DropZone onFileAccepted={handleFile} disabled={isUploading} />
+          <DropZone
+            ref={dropZoneRef}
+            onFileAccepted={setPendingFile}
+            onFileCleared={() => setPendingFile(null)}
+            disabled={isUploading}
+          />
+
+          {/* Bouton de lancement — n'apparaît qu'après sélection d'un
+              fichier, laissant le temps d'ajuster scale/model avant de
+              dispatcher le job sur RunPod. */}
+          <AnimatePresence>
+            {pendingFile && !isUploading && (
+              <m.button
+                key="launch-btn"
+                onClick={() => void launchUpscale()}
+                disabled={isLaunching}
+                initial={{ opacity: 0, y: 12, scale: 0.96 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -8, scale: 0.96 }}
+                whileHover={!isLaunching ? { scale: 1.02, y: -1 } : undefined}
+                whileTap={!isLaunching ? { scale: 0.98 } : undefined}
+                transition={{ type: "spring", stiffness: 320, damping: 26 }}
+                className="mt-6 w-full flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-xl bg-primary text-primary-foreground font-medium text-sm tracking-wide glow-md hover:glow-lg transition-shadow disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <Sparkles className="w-4 h-4" strokeWidth={2} />
+                {isLaunching ? "Lancement…" : "Lancer l'upscale"}
+                <span className="font-mono text-xs opacity-80">
+                  · ×{scaleFactor} · {modelName}
+                </span>
+              </m.button>
+            )}
+          </AnimatePresence>
 
           {/* Barre d'upload avec shimmer */}
           <AnimatePresence>
@@ -336,9 +408,12 @@ export function UpscalePage() {
                 >
                   <JobCard
                     job={job}
-                    onDownload={() =>
-                      window.open(getDownloadUrl(job.id), "_blank")
-                    }
+                    onDownload={() => {
+                      const filename = job.output_key
+                        ? job.output_key.split("/").pop() ?? "upscaled.jpg"
+                        : "upscaled.jpg";
+                      void downloadFile(getDownloadUrl(job.id), filename);
+                    }}
                     onCompare={() => setCompareJob(job)}
                   />
                 </m.div>

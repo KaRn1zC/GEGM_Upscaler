@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { m, AnimatePresence } from "motion/react";
 import { Layers } from "lucide-react";
-import { BatchPanel } from "@/components/BatchPanel";
+import { BatchPanel, type BatchPanelHandle } from "@/components/BatchPanel";
 import { JobCard } from "@/components/JobCard";
 import { useJobStore } from "@/stores/useJobStore";
 import { useSystemResources } from "@/hooks/useSystemResources";
+import { useTauriDragDrop } from "@/hooks/useTauriDragDrop";
 import type { ScaleFactor } from "@/lib/constants";
 
 const EASE_OUT_EXPO = [0.22, 1, 0.36, 1] as const;
@@ -14,10 +15,18 @@ export function BatchPage() {
   const { refresh: refreshResources } = useSystemResources();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [lastBatchErrors, setLastBatchErrors] = useState<string[]>([]);
+  const batchPanelRef = useRef<BatchPanelHandle>(null);
 
   useEffect(() => {
     void fetchJobs();
   }, [fetchJobs]);
+
+  // Drag-drop natif depuis Finder (Tauri) — on injecte les fichiers dans la
+  // queue du BatchPanel via son API impérative. No-op en mode web.
+  const handleNativeDrop = useCallback((files: File[]) => {
+    batchPanelRef.current?.addFiles(files);
+  }, []);
+  useTauriDragDrop(handleNativeDrop);
 
   const handleSubmit = useCallback(
     async (files: File[], scaleFactor: ScaleFactor) => {
@@ -108,7 +117,11 @@ export function BatchPage() {
           transition={{ duration: 0.8, delay: 0.1, ease: EASE_OUT_EXPO }}
           className="mb-12"
         >
-          <BatchPanel onSubmit={handleSubmit} isSubmitting={isSubmitting} />
+          <BatchPanel
+            ref={batchPanelRef}
+            onSubmit={handleSubmit}
+            isSubmitting={isSubmitting}
+          />
         </m.section>
 
         {/* Erreurs du dernier batch */}
