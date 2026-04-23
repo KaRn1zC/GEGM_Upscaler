@@ -33,7 +33,12 @@ async def get_or_create_by_email(
     Returns:
         Instance ``User`` existante ou nouvellement créée.
     """
-    result = await db.execute(select(User).where(User.email == email))
+    # Filtre ``deleted_at IS NULL`` : un user purgé RGPD ne doit pas être
+    # "ressuscité" à la prochaine connexion. Son email est de toute façon
+    # réécrit en ``deleted-<uuid>@deleted.local``, donc cette requête par
+    # ``email`` ne le retrouverait pas — mais on garde la clause explicite
+    # pour la lisibilité + robustesse si l'anonymisation change un jour.
+    result = await db.execute(select(User).where(User.email == email, User.deleted_at.is_(None)))
     user = result.scalar_one_or_none()
 
     if user is None:

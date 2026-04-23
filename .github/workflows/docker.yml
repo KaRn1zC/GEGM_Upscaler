@@ -84,6 +84,9 @@ jobs:
             VITE_API_BASE=${{ vars.VITE_API_BASE_PROD || '' }}
             VITE_OIDC_ISSUER=${{ vars.VITE_OIDC_ISSUER_PROD || '' }}
             VITE_OIDC_CLIENT_ID=${{ vars.VITE_OIDC_CLIENT_ID_PROD || 'gegm-upscaler' }}
+            VITE_SENTRY_DSN=${{ secrets.FRONTEND_SENTRY_DSN }}
+            VITE_SENTRY_ENVIRONMENT=${{ vars.SENTRY_ENVIRONMENT || 'production' }}
+            VITE_APP_VERSION=${{ steps.meta.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -205,4 +208,79 @@ jobs:
             echo "| semver | \`${{ steps.refs.outputs.target_version }}\` |"
             echo "| major.minor | \`${{ steps.refs.outputs.target_minor }}\` |"
             echo "| latest | \`${{ steps.refs.outputs.target_latest }}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ───────────────────────────────────────────────────────────────────────
+  # Package + publish du Helm chart comme artifact OCI sur GHCR.
+  #
+  # Rend le chart installable via :
+  #   helm upgrade --install gegm-upscaler \
+  #     oci://ghcr.io/karn1zc/charts/gegm-upscaler \
+  #     --version <semver> -f values-prod.yaml
+  #
+  # Sans ce job, l'infra doit cloner le repo Git pour deployer — ici on
+  # decouple completement le deploiement du repo source.
+  #
+  # Chart.yaml garde version=0.1.0 en source, mais le CI reecrit version +
+  # appVersion avec le tag pousse → l'artifact publie est toujours aligne
+  # avec la release applicative.
+  # ───────────────────────────────────────────────────────────────────────
+  publish-chart:
+    name: Package + push Helm chart (GHCR OCI)
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+
+    env:
+      CHART_VERSION: ${{ needs.build-and-push.outputs.version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: "v3.16.3"
+
+      - name: Rewrite Chart.yaml version/appVersion to match the pushed tag
+        run: |
+          yq -i '.version = strenv(CHART_VERSION) | .appVersion = strenv(CHART_VERSION)' \
+            charts/gegm-upscaler/Chart.yaml
+          cat charts/gegm-upscaler/Chart.yaml
+
+      - name: Helm lint
+        run: helm lint charts/gegm-upscaler
+
+      - name: Helm package
+        run: helm package charts/gegm-upscaler -d /tmp/chart-dist
+
+      - name: Login to GHCR (OCI)
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+        run: |
+          echo "$GHCR_TOKEN" | helm registry login ghcr.io -u "$GHCR_USER" --password-stdin
+
+      - name: Helm push to GHCR OCI
+        run: |
+          helm push "/tmp/chart-dist/gegm-upscaler-${CHART_VERSION}.tgz" \
+            oci://ghcr.io/${{ github.repository_owner }}/charts
+
+      - name: Summary
+        run: |
+          {
+            echo "### 📦 Helm chart publie (OCI)"
+            echo ""
+            echo "Install :"
+            echo ""
+            echo '```bash'
+            echo "helm upgrade --install gegm-upscaler \\"
+            echo "  oci://ghcr.io/${{ github.repository_owner }}/charts/gegm-upscaler \\"
+            echo "  --version ${CHART_VERSION} \\"
+            echo "  -f values-prod.yaml"
+            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"

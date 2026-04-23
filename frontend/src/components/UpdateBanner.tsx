@@ -1,5 +1,6 @@
 import { m, AnimatePresence } from "motion/react";
 import { Download, Sparkles, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { useUpdater } from "@/hooks/useUpdater";
 import { useUpdaterStore } from "@/stores/useUpdaterStore";
 
@@ -11,6 +12,7 @@ import { useUpdaterStore } from "@/stores/useUpdaterStore";
  * No-op hors contexte Tauri (le hook lui-même court-circuite).
  */
 export function UpdateBanner() {
+  const { t } = useTranslation();
   // `useUpdater` fait le check initial au mount ; les autres consommateurs
   // (ex. SettingsPage) lisent le store directement pour éviter de redéclencher.
   useUpdater();
@@ -41,7 +43,7 @@ export function UpdateBanner() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-foreground">
-                    Mise à jour disponible
+                    {t("updater.available")}
                   </p>
                   <p className="mt-0.5 text-[11px] font-mono text-muted-foreground">
                     v{update.currentVersion} → v{update.version}
@@ -55,7 +57,7 @@ export function UpdateBanner() {
                 <button
                   onClick={dismiss}
                   className="shrink-0 p-1 rounded text-muted-foreground hover:text-foreground transition-colors"
-                  aria-label="Ignorer la notification"
+                  aria-label={t("updater.dismiss")}
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -68,13 +70,13 @@ export function UpdateBanner() {
                   className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-medium glow-sm hover:glow-md transition-shadow"
                 >
                   <Download className="w-3.5 h-3.5" strokeWidth={2} />
-                  Installer et relancer
+                  {t("updater.install")}
                 </m.button>
                 <button
                   onClick={dismiss}
                   className="text-xs text-muted-foreground hover:text-foreground px-3 py-2 transition-colors"
                 >
-                  Plus tard
+                  {t("updater.later")}
                 </button>
               </div>
             </div>
@@ -84,8 +86,8 @@ export function UpdateBanner() {
             <div className="p-4 space-y-3">
               <p className="text-sm font-medium text-foreground">
                 {phase === "downloading"
-                  ? "Téléchargement de la mise à jour…"
-                  : "Installation…"}
+                  ? t("updater.downloading")
+                  : t("updater.installing")}
               </p>
               <div className="relative h-1 rounded-full bg-muted overflow-hidden">
                 <m.div
@@ -110,16 +112,16 @@ export function UpdateBanner() {
           {phase === "error" && (
             <div className="p-4">
               <p className="text-sm font-medium text-destructive mb-1">
-                Échec de la mise à jour
+                {t("updater.errorTitle")}
               </p>
               <p className="text-xs text-muted-foreground break-words">
-                {error ?? "Erreur inconnue"}
+                {error ?? t("updater.errorUnknown")}
               </p>
               <button
                 onClick={dismiss}
                 className="mt-3 text-xs text-muted-foreground hover:text-foreground transition-colors"
               >
-                Fermer
+                {t("updater.close")}
               </button>
             </div>
           )}

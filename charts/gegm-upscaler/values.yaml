@@ -127,6 +127,16 @@ config:
   # local où Vite tourne sur son propre port).
   FRONTEND_DIST: "/app/frontend/dist"
 
+  # OpenTelemetry — traces distribuées FastAPI → Celery → RunPod.
+  # Vide → OTel désactivé (no-op, pas d'overhead). En prod GEGM, pointer
+  # sur l'OTel collector interne. Service name est surchargé côté worker
+  # (auto "gegm-upscaler-worker") pour distinguer les deux dans les
+  # traces agrégées.
+  OTEL_SERVICE_NAME: "gegm-upscaler-api"
+  OTEL_EXPORTER_OTLP_ENDPOINT: ""  # ex: http://otel-collector.monitoring:4317
+  OTEL_EXPORTER_OTLP_INSECURE: "true"
+  OTEL_TRACES_SAMPLER_RATIO: "0.1"
+
 # ─── Database (CNPG Postgres) ──────────────────────────────────────────────
 # Hypothèse : un cluster CNPG est provisionné dans le même namespace (ou
 # un namespace infra avec un endpoint exposé). `DATABASE_URL` est construit
@@ -137,6 +147,41 @@ database:
   port: 5432
   name: "gegm_upscaler"
   user: "gegm_upscaler"
+
+  # ── Backup CNPG ────────────────────────────────────────────────────────
+  # Le chart NE provisionne PAS le Cluster CNPG (c'est l'infra GEGM qui
+  # le fait). Cette section sert à documenter la config *attendue* côté
+  # CNPG et à rendre le chart Helm consommateur des infos nécessaires
+  # pour la procédure de restore (cf. RUNBOOK.md § restore).
+  #
+  # Option retenue : backup géré **côté infra GEGM** via pgBackRest +
+  # archivage WAL continu sur S3 OVH (bucket dédié, distinct du bucket
+  # applicatif pour éviter les surprises RBAC).
+  #
+  # Tant que `enabled: false`, ces valeurs ne sont pas lues par les
+  # templates — elles servent uniquement de référence documentaire pour
+  # la discussion avec l'infra. Quand l'infra confirme la config, passer
+  # `enabled: true` pour que les templates de monitoring du backup
+  # (alerte `BackupStale`) se déclenchent.
+  backup:
+    enabled: false
+    # Objectifs de reprise — à valider avec l'équipe ops GEGM. Ces chiffres
+    # orientent la config pgBackRest côté Cluster CNPG (archive_timeout,
+    # fréquence base-backup, taille du bucket WAL).
+    rpo: "5m"         # Recovery Point Objective — perte max tolérée
+    rto: "1h"         # Recovery Time Objective — durée max de restore
+    # Bucket S3 dédié au backup — distinct de `S3_BUCKET` applicatif.
+    # Nom à fixer avec l'infra OVH (cf. INFRA_QUESTIONS § 2).
+    s3Bucket: "<TO_FILL:CNPG_BACKUP_S3_BUCKET>"        # ex: gegm-upscaler-db-backup
+    s3Endpoint: "<TO_FILL:CNPG_BACKUP_S3_ENDPOINT>"    # ex: https://s3.gra.io.cloud.ovh.net
+    s3Region: "<TO_FILL:CNPG_BACKUP_S3_REGION>"        # ex: gra
+    # Rétention côté CNPG : garder N jours de WAL + N base-backups.
+    # 7 jours WAL + 4 weekly full backups = 1 mois de recovery window.
+    retentionDays: 7
+    baseBackupSchedule: "0 3 * * 0"  # tous les dimanches 3h UTC (cron)
+    # Alerte si le backup le plus récent dépasse cet âge — signale un
+    # job pgBackRest qui plante ou un bucket plein.
+    staleThresholdHours: 26  # > 24 pour couvrir un décalage de fuseau
 
 # ─── Redis / KeyDB ──────────────────────────────────────────────────────────
 # KeyDB = drop-in Redis. Le client `redis.asyncio` est compatible.
@@ -243,6 +288,32 @@ rateLimit:
     - requests: 200
       unit: Minute
       sourceCIDR: "0.0.0.0/0"
+
+# ─── Celery Exporter (danihodovic/celery-exporter) ─────────────────────────
+# Expose les métriques Celery (queue length, tasks succeeded/failed/retried,
+# duration p50/p95/p99, workers online) à partir du broker Redis/KeyDB.
+# Complémentaire du serveur Prometheus custom des workers (port 8001) qui
+# ne couvre que les compteurs applicatifs (`upscale_duration_seconds`, etc.).
+#
+# Image publique, pas de secret nécessaire. Désactivable via `enabled: false`
+# si l'infra préfère monter son propre exporter partagé.
+celeryExporter:
+  enabled: true
+  image:
+    repository: "danihodovic/celery-exporter"
+    tag: "0.10.14"
+    pullPolicy: IfNotPresent
+  port: 9808
+  # Args additionnels passés au binaire — ex: `--log-level=debug`,
+  # `--retry-interval=5`. Cf. https://github.com/danihodovic/celery-exporter
+  extraArgs: []
+  resources:
+    requests:
+      cpu: "20m"
+      memory: "64Mi"
+    limits:
+      cpu: "200m"
+      memory: "256Mi"
 
 # ─── Monitoring (VictoriaMetrics / Prometheus Operator) ────────────────────
 # ServiceMonitor pour l'API + PodMonitor pour les workers Celery (qui

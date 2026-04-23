@@ -148,6 +148,80 @@ spec:
               cleanup quotidien ne libère plus l'espace disque.
         {{- end }}
 
+        {{- if .Values.database.backup.enabled }}
+        - alert: CnpgBackupStale
+          # Alerte si le dernier backup base pgBackRest dépasse le seuil.
+          # Métrique exposée par l'opérateur CNPG (cnpg-prometheus-exporter)
+          # `cnpg_last_available_backup_timestamp` (epoch seconds).
+          # Staleness = `time() - last_backup` > seuil en secondes.
+          #
+          # Requiert que le ServiceMonitor CNPG Operator scrape bien cette
+          # métrique — à confirmer avec l'infra GEGM.
+          expr: |
+            (time() - max(cnpg_last_available_backup_timestamp{
+              namespace="{{ .Release.Namespace }}"
+            })) > {{ mul .Values.database.backup.staleThresholdHours 3600 }}
+          for: 30m
+          labels:
+            severity: critical
+            component: database
+            service: gegm-upscaler
+          annotations:
+            summary: "Aucun backup CNPG récent (> {{ .Values.database.backup.staleThresholdHours }}h)"
+            description: |
+              Le dernier backup base pgBackRest dépasse {{ .Values.database.backup.staleThresholdHours }}h.
+              Le RPO ({{ .Values.database.backup.rpo }}) n'est plus respecté — une panne
+              DB maintenant perdrait plus de données que prévu.
+
+              Diagnostic :
+              - `kubectl -n <cnpg-namespace> logs -l cnpg.io/cluster=<name> -c postgres`
+              - Vérifier l'état du bucket S3 `{{ .Values.database.backup.s3Bucket }}`
+                (quotas, credentials pgBackRest).
+              - Checker si l'opérateur CNPG voit bien le Backup CR :
+                `kubectl -n <ns> get scheduledbackups,backups`
+        {{- end }}
+
+        {{- if .Values.celeryExporter.enabled }}
+        - alert: CeleryQueueSaturated
+          # Plus de 50 tâches en attente depuis 10 min — signale que
+          # la capacité worker est dépassée (RunPod saturé, concurrency
+          # trop basse, ou un flot d'uploads batch). Seuil à ajuster
+          # après observation du profil réel d'usage.
+          expr: |
+            max(celery_queue_length{namespace="{{ .Release.Namespace }}"}) > 50
+          for: 10m
+          labels:
+            severity: warning
+            component: worker
+            service: gegm-upscaler
+          annotations:
+            summary: "Queue Celery saturée (> 50 tâches en attente depuis 10 min)"
+            description: |
+              La queue s'empile plus vite que les workers ne la vident.
+              Pistes : augmenter `worker.replicaCount` ou `worker.concurrency`,
+              vérifier l'état de l'endpoint RunPod, identifier un éventuel
+              job bloqué qui monopolise les slots.
+
+        - alert: NoCeleryWorkerOnline
+          # L'exporter voit 0 worker connecté au broker. Distinct de
+          # `WorkerPodsDown` qui regarde K8s — ici on vérifie que les
+          # workers se sont bien enregistrés auprès de Celery.
+          expr: |
+            celery_workers{namespace="{{ .Release.Namespace }}"} == 0
+          for: 3m
+          labels:
+            severity: critical
+            component: worker
+            service: gegm-upscaler
+          annotations:
+            summary: "Aucun worker Celery connecté au broker"
+            description: |
+              Les pods worker tournent peut-être, mais aucun n'est vu par
+              le broker Redis/KeyDB. Symptôme classique : le broker est
+              inaccessible ou les workers boucent sur une erreur de
+              connexion silencieuse. Vérifier REDIS_URL et la santé de KeyDB.
+        {{- end }}
+
         # ─── Redémarrages ───────────────────────────────────────────
         - alert: PodCrashLooping
           expr: |

@@ -34,6 +34,7 @@ __all__ = [
     "get_gpu_local",
     "get_secrets",
     "get_storage",
+    "require_admin",
 ]
 
 # ``auto_error=False`` : permet à ``get_current_user`` de tomber en fallback
@@ -168,6 +169,24 @@ async def get_current_user(
         )
 
     return await get_or_create_by_email(db, email=identity.email, name=identity.name)
+
+
+def require_admin(user: User = Depends(get_current_user)) -> User:
+    """Exige que l'utilisateur courant soit dans ``settings.ADMIN_EMAILS``.
+
+    Utilisé par les endpoints ``/api/admin/*``. Simple comparaison d'email
+    — suffisant pour un outil interne ~50 users, sans nécessiter une
+    table de rôles. Liste alimentée depuis Vault en prod.
+
+    Raises:
+        HTTPException: 403 si l'utilisateur n'est pas admin.
+    """
+    if user.email not in settings.ADMIN_EMAILS:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Réservé aux administrateurs",
+        )
+    return user
 
 
 def get_gpu_local() -> GPUBackend:

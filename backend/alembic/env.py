@@ -9,11 +9,11 @@ import asyncio
 from alembic import context
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from app.core.config import settings
-from app.core.database import Base
-
 # Enregistrement de tous les modèles pour que Base.metadata
 # contienne la définition complète du schéma.
+from app.core.audit import AuditLog  # noqa: F401
+from app.core.config import settings
+from app.core.database import Base
 from app.jobs.models import Job  # noqa: F401
 from app.users.models import User  # noqa: F401
 

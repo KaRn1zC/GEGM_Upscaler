@@ -7,16 +7,17 @@ from pathlib import Path
 import sentry_sdk
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
-from prometheus_fastapi_instrumentator import Instrumentator
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from app.core.celery import celery_app  # noqa: F401 — accessible via app.main.celery_app
 from app.core.config import settings
 from app.core.database import engine
 from app.core.logging import setup_logging
 from app.core.redis import close_redis_pool
+from app.core.telemetry import init_telemetry, instrument_celery, instrument_fastapi
 
 # Enregistrement des modèles ORM pour que SQLAlchemy connaisse le schéma complet.
 # L'alias ``as _`` évite la confusion mypy entre le package ``app`` et la
@@ -41,6 +42,13 @@ if settings.SENTRY_DSN:
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     """Cycle de vie de l'application : hooks de démarrage et d'arrêt."""
     setup_logging()
+    # OTel : init avant toute chose pour que les spans de démarrage DB/Redis
+    # soient capturés. No-op si ``OTEL_EXPORTER_OTLP_ENDPOINT`` est vide.
+    init_telemetry(service_name=settings.OTEL_SERVICE_NAME)
+    instrument_fastapi(_app)
+    # On instrumente Celery côté API aussi — ça permet aux ``delay()``
+    # invoqués depuis un endpoint de propager le trace-id vers le worker.
+    instrument_celery()
     logger.info(
         "Starting GEGM Upscaler API — env={env} storage={storage} auth={auth}",
         env=settings.APP_ENV,
@@ -71,12 +79,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Prometheus — métriques HTTP sur /metrics ───────────────────
-Instrumentator(
-    should_group_status_codes=True,
-    should_ignore_untemplated=True,
-    excluded_handlers=["/api/health", "/metrics"],
-).instrument(app).expose(app, endpoint="/metrics")
+
+# ── Prometheus — métriques custom exposées sur /metrics ────────
+# Les métriques HTTP automatiques (p50/p95 latence, RPS, codes de statut)
+# viennent maintenant des spans OTel ``http.server.*`` envoyés au collector.
+# Ici on ne sert que les compteurs métier (``upscale_jobs_total``,
+# ``upscale_duration_seconds``) via ``prometheus_client`` pour que le
+# ServiceMonitor VictoriaMetrics existant continue à les scraper sans
+# changement d'infra.
+@app.get("/metrics", include_in_schema=False)
+async def metrics() -> Response:
+    """Endpoint Prometheus scrapé par VictoriaMetrics."""
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 app.include_router(uploads_router)

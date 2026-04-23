@@ -1,19 +1,24 @@
-name: Release Tauri macOS
+name: Release Tauri Desktop
 
-# Build le bundle desktop macOS (aarch64 + x86_64) + le manifest updater
-# à chaque tag `v*.*.*`, puis publie tout dans une GitHub Release.
+# Build les bundles desktop (macOS aarch64 + x86_64, Linux x86_64,
+# Windows x86_64) et le manifest updater à chaque tag `v*.*.*`, puis
+# publie tout dans une GitHub Release.
 #
-# Deux artefacts par plateforme :
-#   - `.dmg`       → installer téléchargeable (right-click → Ouvrir au 1er run)
-#   - `.app.tar.gz` + `.sig` → bundle mis à jour automatiquement par le Tauri
-#     updater (signature via la clé `TAURI_SIGNING_PRIVATE_KEY`, pas Apple).
+# Artefacts par plateforme :
+#   - macOS   : `.dmg` + `.app.tar.gz` + `.sig` (updater)
+#   - Linux   : `.AppImage` + `.deb`  + `.AppImage.sig` (updater)
+#   - Windows : `.msi`      + `.msi.zip` + `.msi.zip.sig` (updater)
 #
-# Un `latest.json` est généré par `tauri-action` et référence les deux archs
-# — c'est ce que le client Tauri fetch depuis `endpoints` de tauri.conf.json.
+# Signature via `TAURI_SIGNING_PRIVATE_KEY` (ed25519, indépendante d'Apple
+# ou Microsoft). Un `latest.json` est généré par `tauri-action` et
+# référence toutes les archs — c'est ce que le client Tauri fetch depuis
+# `endpoints` de tauri.conf.json.
 #
-# Migration S3 OVH (cf. DISTRIBUTION.md) : ce workflow restera sans
-# changement ; seul `endpoints` dans tauri.conf.json basculera vers l'URL
-# du bucket OVH et un job d'upload additionnel sera ajouté.
+# Note signature OS :
+#   - macOS    : pas de certif Apple Dev → Gatekeeper clic-droit au 1er run
+#   - Windows  : pas de certif EV → SmartScreen "More info → Run anyway"
+#                au 1er run (les MAJ Tauri passent ensuite sans friction)
+#   - Linux    : pas de signature OS nécessaire, AppImage s'exécute direct
 
 on:
   push:
@@ -25,16 +30,24 @@ permissions:
   contents: write  # nécessaire pour créer la release + uploader les assets
 
 jobs:
-  build-macos:
+  build-desktop:
     strategy:
       fail-fast: false
       matrix:
         include:
-          - arch: aarch64
+          - platform: macos-latest
+            arch: aarch64
             target: aarch64-apple-darwin
-          - arch: x86_64
+          - platform: macos-latest
+            arch: x86_64
             target: x86_64-apple-darwin
-    runs-on: macos-latest
+          - platform: ubuntu-22.04
+            arch: x86_64
+            target: x86_64-unknown-linux-gnu
+          - platform: windows-latest
+            arch: x86_64
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.platform }}
 
     steps:
       - name: Checkout
@@ -57,6 +70,25 @@ jobs:
         with:
           workspaces: frontend/src-tauri -> target
 
+      # ── Deps systeme Linux ────────────────────────────────────────
+      # WebKitGTK + GTK + Ayatana sont requis par Tauri 2 pour le
+      # webview et le system tray. libsoup + librsvg + libappindicator
+      # couvrent les plugins dialog / notification / fs que l'app utilise.
+      # Ubuntu 22.04 reste necessaire car 24.04 a bump vers webkitgtk 4.1
+      # alors que tauri 2 attend encore 4.0 dans la plupart des configs.
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.0-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libsoup-3.0-dev \
+            libjavascriptcoregtk-4.0-dev \
+            patchelf
+
       - name: Install frontend deps
         working-directory: frontend
         run: npm ci
@@ -70,18 +102,22 @@ jobs:
           # secret GitHub. La clé publique vit dans tauri.conf.json.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # URL absolue du backend distant — nécessaire pour que le .dmg
-          # installé puisse joindre l'API (sinon fetch("/api/*") résout
-          # sur tauri://localhost/api/* sans backend derrière). Valeur par
-          # défaut pour la prod GEGM ; overridable via var repo GitHub.
+          # URL absolue du backend distant — nécessaire pour que le
+          # bundle installé puisse joindre l'API (sinon fetch("/api/*")
+          # résout sur tauri://localhost/api/* sans backend derrière).
+          # Valeur par défaut pour la prod GEGM ; overridable via var repo.
           VITE_API_BASE: ${{ vars.VITE_API_BASE_PROD || 'https://upscaler.gegmgroup.com/api' }}
-          # OIDC config — le .dmg distribué aux users doit utiliser le
-          # flow OIDC PKCE Keycloak (pas le token statique dev). Si les
-          # vars ne sont pas configurees, le .dmg reste en mode `dev`
-          # avec le token statique (utile pour tests internes).
+          # OIDC config — le bundle distribué aux users doit utiliser
+          # le flow OIDC PKCE Keycloak (pas le token statique dev). Si
+          # les vars ne sont pas configurees, le bundle reste en mode
+          # `dev` avec le token statique (utile pour tests internes).
           VITE_AUTH_MODE: ${{ vars.VITE_AUTH_MODE_PROD || 'dev' }}
           VITE_OIDC_ISSUER: ${{ vars.VITE_OIDC_ISSUER_PROD || '' }}
           VITE_OIDC_CLIENT_ID: ${{ vars.VITE_OIDC_CLIENT_ID_PROD || 'gegm-upscaler' }}
+          # Sentry — DSN vide = pas d'init. En prod, pointer sur errors.vixns.net.
+          VITE_SENTRY_DSN: ${{ secrets.FRONTEND_SENTRY_DSN }}
+          VITE_SENTRY_ENVIRONMENT: ${{ vars.SENTRY_ENVIRONMENT || 'production-tauri' }}
+          VITE_APP_VERSION: ${{ github.ref_name }}
         with:
           projectPath: frontend
           # `__VERSION__` est remplacé par `tauri-action` avec la version
@@ -94,16 +130,33 @@ jobs:
           releaseBody: |
             ## Installation
 
-            1. Télécharge le `.dmg` correspondant à ton Mac :
-               - **Apple Silicon (M1/M2/M3/M4)** → `*_aarch64.dmg`
-               - **Intel Mac** → `*_x64.dmg`
-            2. Double-clique pour monter le `.dmg`, glisse l'app dans `/Applications`
-            3. Au **premier lancement uniquement** : clic-droit sur l'app → **Ouvrir**
-               (Gatekeeper demande confirmation car l'app n'est pas signée Apple).
-               Les lancements suivants et les mises à jour auto passent sans warning.
+            Télécharge le fichier correspondant à ton OS :
 
-            Les futures mises à jour s'installent automatiquement via l'updater
-            intégré (bannière en bas à droite de l'app).
+            ### macOS
+            - **Apple Silicon (M1/M2/M3/M4)** → `*_aarch64.dmg`
+            - **Intel Mac** → `*_x64.dmg`
+
+            Double-clique pour monter le `.dmg`, glisse l'app dans
+            `/Applications`. Au **premier lancement uniquement** : clic-droit
+            sur l'app → **Ouvrir** (Gatekeeper demande confirmation car
+            l'app n'est pas signée Apple). Lancements suivants et mises à
+            jour auto passent sans warning.
+
+            ### Windows
+            - **Windows 10/11 x64** → `*_x64-setup.exe` ou `*_x64_en-US.msi`
+
+            Double-clique l'installeur. Au **premier lancement uniquement** :
+            SmartScreen affiche « Windows has protected your PC » →
+            **More info** → **Run anyway** (l'app n'est pas signée EV).
+
+            ### Linux
+            - **Ubuntu/Debian x64** → `*_amd64.deb` (`sudo dpkg -i`)
+            - **Autres distros x64** → `*_amd64.AppImage`
+              (`chmod +x` puis double-clic)
+
+            Les futures mises à jour s'installent automatiquement via
+            l'updater intégré (bannière en bas à droite de l'app), quelle
+            que soit la plateforme.
           releaseDraft: true
           prerelease: false
           args: --target ${{ matrix.target }}

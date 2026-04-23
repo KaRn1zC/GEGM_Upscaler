@@ -1,6 +1,7 @@
 import { m } from "motion/react";
 import { LogIn, Sparkles } from "lucide-react";
 import { Navigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { useAuth } from "@/hooks/useAuth";
 
 const EASE_OUT_EXPO = [0.22, 1, 0.36, 1] as const;
@@ -11,6 +12,7 @@ const EASE_OUT_EXPO = [0.22, 1, 0.36, 1] as const;
  * /upscale sans passer par ici.
  */
 export function LoginPage() {
+  const { t } = useTranslation();
   const { isAuthenticated, login, authMode } = useAuth();
 
   if (isAuthenticated) {
@@ -62,11 +64,10 @@ export function LoginPage() {
           </div>
 
           <h2 className="font-display font-light text-2xl text-foreground leading-tight">
-            Connexion requise
+            {t("auth.loginRequired")}
           </h2>
           <p className="mt-3 text-sm text-muted-foreground leading-relaxed">
-            L'accès à l'outil d'upscaling GEGM passe par ton compte Keycloak
-            entreprise. Tu seras redirigé vers la page de connexion SSO.
+            {t("auth.loginDescription")}
           </p>
 
           <m.button
@@ -77,11 +78,11 @@ export function LoginPage() {
             className="mt-8 w-full flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-xl bg-primary text-primary-foreground font-medium text-sm tracking-wide glow-md hover:glow-lg transition-shadow"
           >
             <LogIn className="w-4 h-4" strokeWidth={2} />
-            Se connecter avec Keycloak
+            {t("auth.loginButton")}
           </m.button>
 
           <p className="mt-6 text-[10px] font-mono uppercase tracking-[0.2em] text-muted-foreground/70 text-center">
-            SSO entreprise · SSO · session sécurisée
+            {t("auth.loginFooter")}
           </p>
         </m.div>
 

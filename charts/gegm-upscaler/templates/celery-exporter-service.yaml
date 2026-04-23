@@ -1,0 +1,22 @@
+{{- if .Values.celeryExporter.enabled -}}
+# Service headless exposant le port metrics du celery-exporter au
+# ServiceMonitor Prometheus. Pas d'usage user-facing, donc ClusterIP
+# suffit — pas besoin de LoadBalancer ni de HTTPRoute.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "gegm-upscaler.fullname" . }}-celery-exporter
+  labels:
+    {{- include "gegm-upscaler.labels" . | nindent 4 }}
+    app.kubernetes.io/component: celery-exporter
+spec:
+  type: ClusterIP
+  ports:
+    - name: metrics
+      port: {{ .Values.celeryExporter.port }}
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    {{- include "gegm-upscaler.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: celery-exporter
+{{- end }}

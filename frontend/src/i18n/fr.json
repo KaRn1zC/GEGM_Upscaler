@@ -1,0 +1,50 @@
+{
+  "nav": {
+    "upscaler": "Upscaler",
+    "batch": "Batch",
+    "gallery": "Galerie",
+    "history": "Historique",
+    "settings": "Paramètres",
+    "palette": "Palette"
+  },
+  "auth": {
+    "loginRequired": "Connexion requise",
+    "loginDescription": "L'accès à l'outil d'upscaling GEGM passe par ton compte Keycloak entreprise. Tu seras redirigé vers la page de connexion SSO.",
+    "loginButton": "Se connecter avec Keycloak",
+    "loginFooter": "SSO entreprise · SSO · session sécurisée"
+  },
+  "updater": {
+    "available": "Mise à jour disponible",
+    "downloading": "Téléchargement de la mise à jour…",
+    "installing": "Installation…",
+    "errorTitle": "Échec de la mise à jour",
+    "errorUnknown": "Erreur inconnue",
+    "install": "Installer et relancer",
+    "later": "Plus tard",
+    "dismiss": "Ignorer la notification",
+    "close": "Fermer"
+  },
+  "fallback": {
+    "title": "Oups, quelque chose a planté.",
+    "description": "L'erreur a été remontée automatiquement. Tu peux essayer de relancer l'interface — si ça persiste, redémarre l'app.",
+    "retry": "Réessayer"
+  },
+  "upscale": {
+    "headerTitle": "Upscale",
+    "headerSubtitle": "Super-résolution IA",
+    "dropZoneEmpty": "Glisse une image ici",
+    "dropZoneHint": "ou clique pour parcourir",
+    "dropZoneActive": "Relâche pour uploader",
+    "launch": "Lancer l'upscale",
+    "launching": "Lancement…",
+    "cancel": "Annuler"
+  },
+  "settings": {
+    "language": "Langue",
+    "languageFr": "Français",
+    "languageEn": "English"
+  },
+  "common": {
+    "loading": "Chargement…"
+  }
+}

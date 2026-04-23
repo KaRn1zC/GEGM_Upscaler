@@ -1,0 +1,86 @@
+{{- if .Values.celeryExporter.enabled -}}
+# celery-exporter (danihodovic/celery-exporter) — expose les métriques
+# Celery (longueur de queue, tâches succeeded/failed/retried, durée,
+# nombre de workers online) à partir du broker Redis/KeyDB.
+#
+# L'exporter se branche sur le même broker que l'app — pas de patching
+# du code applicatif, juste un lecteur d'événements Celery natif.
+# Port par défaut : 9808 (/metrics).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "gegm-upscaler.fullname" . }}-celery-exporter
+  labels:
+    {{- include "gegm-upscaler.labels" . | nindent 4 }}
+    app.kubernetes.io/component: celery-exporter
+spec:
+  # Singleton : le dédup des événements Celery est fait par task_id côté
+  # exporter, mais 2 replicas doubleraient quand même les compteurs.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "gegm-upscaler.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: celery-exporter
+  template:
+    metadata:
+      labels:
+        {{- include "gegm-upscaler.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: celery-exporter
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "gegm-upscaler.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: celery-exporter
+          image: "{{ .Values.celeryExporter.image.repository }}:{{ .Values.celeryExporter.image.tag }}"
+          imagePullPolicy: {{ .Values.celeryExporter.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          args:
+            - "--broker-url=redis://$(REDIS_HOST):$(REDIS_PORT)/$(REDIS_DB)"
+            - "--port={{ .Values.celeryExporter.port }}"
+            {{- with .Values.celeryExporter.extraArgs }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.celeryExporter.port }}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "gegm-upscaler.configMapName" . }}
+          resources:
+            {{- toYaml .Values.celeryExporter.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

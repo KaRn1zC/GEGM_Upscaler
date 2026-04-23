@@ -1,6 +1,16 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
 import { afterEach, beforeEach, vi } from "vitest";
+// Init i18next pour que les `t()` des composants résolvent les clés dans
+// les tests au lieu d'afficher la clé brute (ex: "updater.available").
+import i18n from "@/lib/i18n";
+
+// Force la langue à `fr` sous jsdom — sinon `i18next-browser-languagedetector`
+// pioche `en-US` depuis `navigator.language` par défaut de jsdom, et les
+// assertions de test (écrites en FR) cassent. En prod le détecteur marche
+// normalement (localStorage + navigator.language), c'est bien spécifique
+// aux tests.
+void i18n.changeLanguage("fr");
 
 // ──────────────────────────────────────────────────────────────
 // Polyfills jsdom — observers non fournis mais requis par Motion

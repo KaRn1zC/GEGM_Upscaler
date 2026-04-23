@@ -6,10 +6,17 @@ automatique des tâches parcourt les modules métier listés ci-dessous.
 Sentry est initialisé ici (en plus de ``main.py``) pour capturer les
 exceptions des workers Celery qui tournent dans un process séparé.
 
+OpenTelemetry : ``init_telemetry`` est appelée au ``worker_process_init``
+pour que les spans des tasks Celery (préparation, download, upscale,
+save) soient exportés au collector. L'API appelle aussi
+``instrument_celery()`` de son côté pour que les ``task.delay()``
+propagent leur trace-id au worker — on reconstitue ainsi une trace unique
+HTTP → Celery → RunPod → DB.
+
 Un serveur HTTP Prometheus est démarré sur le port 8001 dans chaque worker
-via le signal ``worker_process_init`` — expose les compteurs custom de
-``app.core.metrics`` pour que Prometheus puisse les scraper (cf.
-``monitoring/prometheus/prometheus.yml`` job ``gegm-worker``).
+via le même signal — expose les compteurs custom de ``app.core.metrics``
+pour que VictoriaMetrics puisse les scraper (cf. chart Helm
+``worker-service.yaml``).
 """
 
 import sentry_sdk
@@ -69,18 +76,24 @@ from app.jobs import reaper as _reaper  # noqa: E402, F401
 
 
 @worker_process_init.connect
-def _start_prometheus_metrics_server(**_kwargs: object) -> None:
-    """Démarre un serveur HTTP Prometheus au lancement de chaque worker.
+def _on_worker_process_init(**_kwargs: object) -> None:
+    """Bootstrap OTel + Prometheus dans chaque process worker.
 
-    Celery lance N process workers (``--concurrency``). Chaque worker expose
-    ses métriques custom sur le port 8001 (interne au réseau Docker).
-    Prometheus scrape ``worker:8001/metrics`` pour les collecter.
+    Celery lance N process workers (``--concurrency``). Chaque worker doit :
+    1. Initialiser OTel pour exporter ses spans vers le collector.
+    2. Exposer ses métriques custom sur le port 8001 (port interne au
+       cluster, scrapé par le ServiceMonitor worker).
 
     Note : ``start_http_server`` échoue silencieusement si le port est déjà
-    pris (ex. deuxième process avec ``concurrency=2``) — on log le warning
-    mais on ne propage pas l'erreur pour ne pas bloquer le worker.
+    pris (ex. 2e process avec ``concurrency=2``) — on log le warning mais
+    on ne propage pas l'erreur pour ne pas bloquer le worker.
     """
     from app.core.metrics import start_metrics_server
+    from app.core.telemetry import init_telemetry, instrument_celery
+
+    # OTel d'abord — ainsi les logs suivants portent déjà trace_id/span_id.
+    init_telemetry(service_name="gegm-upscaler-worker")
+    instrument_celery()
 
     try:
         start_metrics_server(port=8001)

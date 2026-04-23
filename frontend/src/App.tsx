@@ -16,6 +16,7 @@ import {
   Settings,
   Command as CommandIcon,
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { CapabilityBadge } from "@/components/CapabilityBadge";
 import { UpdateBanner } from "@/components/UpdateBanner";
@@ -34,17 +35,20 @@ import { UpscalePage } from "@/pages/UpscalePage";
 // la demande dans son propre chunk, pas dans le bundle initial.
 const CommandPalette = lazy(() => import("@/components/CommandPalette"));
 
+// Les `labelKey` sont résolues côté composant via `t()` — on les garde en
+// table statique pour préserver le bundle-splitting de la nav.
 const NAV_ITEMS = [
-  { to: "/upscale", label: "Upscaler", icon: ImageUp, shortcut: "⌘1" },
-  { to: "/batch", label: "Batch", icon: Layers, shortcut: "⌘2" },
-  { to: "/gallery", label: "Galerie", icon: GalleryHorizontal, shortcut: "⌘3" },
-  { to: "/history", label: "Historique", icon: Clock, shortcut: "⌘4" },
-  { to: "/settings", label: "Paramètres", icon: Settings, shortcut: "⌘5" },
-];
+  { to: "/upscale", labelKey: "nav.upscaler", icon: ImageUp, shortcut: "⌘1" },
+  { to: "/batch", labelKey: "nav.batch", icon: Layers, shortcut: "⌘2" },
+  { to: "/gallery", labelKey: "nav.gallery", icon: GalleryHorizontal, shortcut: "⌘3" },
+  { to: "/history", labelKey: "nav.history", icon: Clock, shortcut: "⌘4" },
+  { to: "/settings", labelKey: "nav.settings", icon: Settings, shortcut: "⌘5" },
+] as const;
 
 const EASE_OUT_EXPO = [0.22, 1, 0.36, 1] as const;
 
 function Sidebar() {
+  const { t } = useTranslation();
   return (
     <aside className="relative w-60 shrink-0 border-r border-border bg-card/30 backdrop-blur-sm flex flex-col">
       {/* Gradient subtil derrière le logo */}
@@ -70,7 +74,7 @@ function Sidebar() {
 
       {/* Navigation */}
       <nav className="relative flex-1 px-3 py-5">
-        {NAV_ITEMS.map(({ to, label, icon: Icon, shortcut }, i) => (
+        {NAV_ITEMS.map(({ to, labelKey, icon: Icon, shortcut }, i) => (
           <m.div
             key={to}
             initial={{ opacity: 0, x: -8 }}
@@ -107,7 +111,7 @@ function Sidebar() {
                     className="relative w-4 h-4 shrink-0"
                     strokeWidth={1.8}
                   />
-                  <span className="relative font-medium flex-1">{label}</span>
+                  <span className="relative font-medium flex-1">{t(labelKey)}</span>
                   <span
                     className={cn(
                       "relative text-[9px] font-mono opacity-0 group-hover:opacity-60 transition-opacity",
@@ -136,7 +140,7 @@ function Sidebar() {
         <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-card/60 border border-border/60">
           <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
             <CommandIcon className="w-3 h-3" strokeWidth={2} />
-            <span className="uppercase tracking-[0.15em]">Palette</span>
+            <span className="uppercase tracking-[0.15em]">{t("nav.palette")}</span>
           </div>
           <kbd className="text-[9px] font-mono text-muted-foreground/70 px-1.5 py-0.5 rounded border border-border/60 bg-background/40">
             ⌘K

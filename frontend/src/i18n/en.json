@@ -1,0 +1,50 @@
+{
+  "nav": {
+    "upscaler": "Upscaler",
+    "batch": "Batch",
+    "gallery": "Gallery",
+    "history": "History",
+    "settings": "Settings",
+    "palette": "Palette"
+  },
+  "auth": {
+    "loginRequired": "Sign in required",
+    "loginDescription": "Access to the GEGM upscaler tool goes through your company Keycloak account. You will be redirected to the SSO sign-in page.",
+    "loginButton": "Sign in with Keycloak",
+    "loginFooter": "Enterprise SSO · secure session"
+  },
+  "updater": {
+    "available": "Update available",
+    "downloading": "Downloading update…",
+    "installing": "Installing…",
+    "errorTitle": "Update failed",
+    "errorUnknown": "Unknown error",
+    "install": "Install and restart",
+    "later": "Later",
+    "dismiss": "Dismiss notification",
+    "close": "Close"
+  },
+  "fallback": {
+    "title": "Oops, something crashed.",
+    "description": "The error was reported automatically. Try reloading the interface — if it keeps happening, restart the app.",
+    "retry": "Retry"
+  },
+  "upscale": {
+    "headerTitle": "Upscale",
+    "headerSubtitle": "AI super-resolution",
+    "dropZoneEmpty": "Drop an image here",
+    "dropZoneHint": "or click to browse",
+    "dropZoneActive": "Release to upload",
+    "launch": "Start upscale",
+    "launching": "Starting…",
+    "cancel": "Cancel"
+  },
+  "settings": {
+    "language": "Language",
+    "languageFr": "Français",
+    "languageEn": "English"
+  },
+  "common": {
+    "loading": "Loading…"
+  }
+}

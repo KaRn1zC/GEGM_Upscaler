@@ -81,8 +81,31 @@ class Settings(BaseSettings):
     S3_OUTPUT_SECRET_KEY: SecretStr = SecretStr("")
     S3_OUTPUT_REGION: str = "auto"
 
+    # ── Admin ────────────────────────────────────────────────────
+    # Liste des emails avec accès aux endpoints `/api/admin/*`. Simple et
+    # suffisant pour un outil interne ~50 users — pas besoin d'une table
+    # `roles` en DB. En prod, alimentée depuis Vault ou une GitHub Variable.
+    ADMIN_EMAILS: list[str] = []
+
     # ── Monitoring ───────────────────────────────────────────────
     SENTRY_DSN: str = ""
+
+    # ── OpenTelemetry ────────────────────────────────────────────
+    # Nom de service publié dans les spans/metrics (visible dans les
+    # traces côté collector). Conserver la convention `<app>-<role>`
+    # pour distinguer API et worker dans les traces unifiées.
+    OTEL_SERVICE_NAME: str = "gegm-upscaler-api"
+    # Endpoint OTLP gRPC du collector. Vide = tracing désactivé (no-op,
+    # pas d'overhead). En prod GEGM : pointera sur l'OTel collector
+    # interne ou directement VictoriaMetrics OTLP ingest.
+    # Ex: "http://otel-collector.monitoring.svc.cluster.local:4317"
+    OTEL_EXPORTER_OTLP_ENDPOINT: str = ""
+    # Insecure = désactive le TLS sur le canal gRPC. À garder `true`
+    # pour un collector intra-cluster (trafic interne). `false` si le
+    # collector est exposé via un hostname TLS.
+    OTEL_EXPORTER_OTLP_INSECURE: bool = True
+    # Échantillonnage 10 % par défaut — ajustable selon le volume réel.
+    OTEL_TRACES_SAMPLER_RATIO: float = 0.1
 
     # ── Frontend embarqué ────────────────────────────────────────
     # Chemin absolu vers le dossier `dist/` du frontend Vite. Si renseigné

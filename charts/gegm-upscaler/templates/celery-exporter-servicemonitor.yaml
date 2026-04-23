@@ -1,0 +1,24 @@
+{{- if and .Values.celeryExporter.enabled .Values.monitoring.enabled -}}
+# ServiceMonitor pour celery-exporter — scrape toutes les métriques
+# préfixées `celery_*` depuis le pod singleton.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "gegm-upscaler.fullname" . }}-celery-exporter
+  labels:
+    {{- include "gegm-upscaler.labels" . | nindent 4 }}
+    app.kubernetes.io/component: celery-exporter
+    {{- with .Values.monitoring.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "gegm-upscaler.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: celery-exporter
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: {{ .Values.monitoring.interval }}
+      scrapeTimeout: {{ .Values.monitoring.scrapeTimeout }}
+{{- end }}

@@ -1,8 +1,8 @@
 """Métriques Prometheus custom exposées par l'API et les workers Celery.
 
-Complémentent les métriques automatiques de ``prometheus-fastapi-instrumentator``
-(RPS, latence HTTP, codes de statut) avec des compteurs métier ciblés sur le
-pipeline d'upscaling :
+Complémentent les spans HTTP OpenTelemetry (``http.server.duration``,
+``http.server.active_requests``) exportés vers le collector OTLP avec des
+compteurs métier ciblés sur le pipeline d'upscaling :
 
 - ``upscale_jobs_total{status, backend, model}`` : nombre cumulé de jobs
   traités, ventilé par statut (completed/failed), backend (local/cloud) et
@@ -13,10 +13,17 @@ pipeline d'upscaling :
 Alimentées depuis ``app.upscaling.pipeline`` (étapes save et
 on_pipeline_failure). Exposées :
 
-- Côté API : automatiquement via ``prometheus-fastapi-instrumentator`` qui
-  utilise le registry par défaut (``/metrics``).
+- Côté API : via la route ``/metrics`` déclarée dans ``app.main`` qui rend
+  ``prometheus_client.generate_latest()``.
 - Côté worker Celery : via ``start_metrics_server(port)`` appelé depuis
-  un handler ``worker_process_init`` (cf. ``jobs.tasks``).
+  le handler ``worker_process_init`` de ``app.core.celery``.
+
+Pourquoi garder ``prometheus_client`` alors qu'OTel a un Meter API ? Le
+ServiceMonitor du chart Helm scrape déjà ``/metrics`` en format Prom —
+garder cette surface évite un aller-retour collector → VictoriaMetrics
+pour des compteurs qu'on maîtrise à 100 %. Les métriques HTTP passent par
+OTel parce que leur auto-instrumentation ajoute du contexte (route,
+status_code, méthode) qu'on aurait à reconstruire à la main sinon.
 """
 
 from prometheus_client import Counter, Histogram

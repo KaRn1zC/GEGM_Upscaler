@@ -38,6 +38,12 @@ class User(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+    # ``deleted_at`` est posé lors d'une purge RGPD (cf. ``users.deletion``).
+    # ``email`` et ``name`` sont réécrits au même moment avec des valeurs
+    # anonymisées pour satisfaire la « right to be forgotten ». La ligne
+    # reste en DB pour préserver l'intégrité référentielle (les jobs
+    # pointent sur ``user_id`` via FK) mais ne porte plus d'info personnelle.
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     jobs: Mapped[list["Job"]] = relationship(back_populates="user")
 

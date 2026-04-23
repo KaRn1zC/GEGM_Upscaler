@@ -1,6 +1,18 @@
 import { useEffect, useState } from "react";
 import { m } from "motion/react";
-import { Check, Loader2, RefreshCw, Server, Sparkles, User, Wrench, X } from "lucide-react";
+import {
+  Check,
+  Globe,
+  Loader2,
+  RefreshCw,
+  Server,
+  Sparkles,
+  User,
+  Wrench,
+  X,
+} from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { getCurrentUser, getReadiness } from "@/lib/api";
 import type { HealthResponse, UserResponse } from "@/lib/api";
 import { MODEL_OPTIONS, SCALE_FACTORS, type ScaleFactor } from "@/lib/constants";
@@ -12,6 +24,7 @@ import { cn } from "@/lib/utils";
 const EASE_OUT_EXPO = [0.22, 1, 0.36, 1] as const;
 
 export function SettingsPage() {
+  const { t } = useTranslation();
   const { preferences, updatePreference, resetPreferences } = usePreferences();
   const updater = useUpdaterStore();
   const [user, setUser] = useState<UserResponse | null>(null);
@@ -151,6 +164,11 @@ export function SettingsPage() {
             </button>
           </div>
         </div>
+      </Section>
+
+      {/* Langue */}
+      <Section icon={Globe} title={t("settings.language")}>
+        <LanguageSwitcher />
       </Section>
 
       {/* État du système */}
