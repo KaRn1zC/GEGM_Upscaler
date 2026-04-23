@@ -44,7 +44,9 @@ class Job(Base):
         input_key: Clé de stockage de l'image source.
         output_key: Clé de stockage du résultat (renseigné après traitement).
         scale_factor: Facteur de multiplication des dimensions (2 ou 4).
-        model_name: Modèle de super-résolution utilisé (drct-l par défaut).
+        model_name: Modèle SR utilisé. Dérivé du ``scale_factor`` côté
+            serveur (``x4 → drct-l``, ``x2 → hat-l``) — le client ne
+            choisit pas ce champ. Stocké pour affichage et audit.
         input_width: Largeur de l'image source en pixels.
         input_height: Hauteur de l'image source en pixels.
         output_width: Largeur du résultat (renseigné après traitement).

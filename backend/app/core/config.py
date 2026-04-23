@@ -65,6 +65,10 @@ class Settings(BaseSettings):
     OIDC_CLIENT_SECRET: SecretStr = SecretStr("")
 
     # ── GPU ─────────────────────────────────────────────────────
+    # Legacy : utilisé uniquement par le backend GPU local Core ML (désactivé
+    # en v2 cloud-only, cf. SUIVI "Core ML v2 bloqué upstream"). Pour le
+    # routage cloud RunPod, voir `backend.app.jobs.service._model_for_scale`
+    # qui tranche selon le scale_factor (x4 → drct-l, x2 → hat-l).
     UPSCALE_MODEL: Literal["drct-l", "hat-l"] = "drct-l"
     COREML_MODEL_DIR: str = "models"
     RUNPOD_API_KEY: SecretStr = SecretStr("")

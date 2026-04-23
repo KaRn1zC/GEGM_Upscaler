@@ -17,7 +17,9 @@ listées dans [`INFRA_QUESTIONS.md`](./INFRA_QUESTIONS.md) § 0.
 3. [Architecture en bref](#3-architecture-en-bref)
 4. [Prérequis](#4-prérequis)
 5. [Installation initiale](#5-installation-initiale)
-6. [Build & push de l'image Docker (versionnée)](#6-build--push-de-limage-docker-versionnée)
+6. [Build & push des images Docker (versionnées)](#6-build--push-des-images-docker-versionnées)
+   - [6.A — Image backend (`gegm-upscaler-backend`)](#6a--image-backend-gegm-upscaler-backend)
+   - [6.B — Image worker RunPod (`arnaudboy/gegm-upscaler-worker`)](#6b--image-worker-runpod-arnaudboygegm-upscaler-worker)
 7. [Mode Dev local — dev itératif](#7-mode-dev-local--dev-itératif)
 8. [Mode Prod local — simulation prod sur la machine](#8-mode-prod-local--simulation-prod-sur-la-machine)
 9. [Mode Prod routinière — cluster K8s GEGM](#9-mode-prod-routinière--cluster-k8s-gegm)
@@ -142,14 +144,43 @@ uv run alembic upgrade head
 
 ---
 
-## 6. Build & push de l'image Docker (versionnée)
+## 6. Build & push des images Docker (versionnées)
 
-L'image Docker embarque à la fois l'API FastAPI et le SPA Vite compilé
-(Dockerfile multi-stage 3 étapes). Publication sur **GHCR**
-(`ghcr.io/karn1zc/gegm-upscaler-backend`) avec **mirror automatique** vers
-le registry GitLab GEGM si les variables CI sont configurées.
+### ⚠️ Important — le projet utilise **deux images Docker distinctes**
 
-### 6.1 Approche recommandée — via CI automatique (tag git)
+Elles sont **complémentaires, pas interchangeables**. Chacune a son rôle,
+son registry, son cycle de release. Il faut **les deux** à l'exécution :
+ton orchestrateur appelle l'API RunPod, qui spawn un container avec
+l'image worker pour faire l'upscale GPU.
+
+| Image | Registry | Rôle | Tournée sur | Version actuelle |
+|---|---|---|---|:-:|
+| **`gegm-upscaler-backend`** | `ghcr.io/karn1zc/` | **Orchestrateur** — API FastAPI + SPA React + Celery | Ton Mac (dev/prod local) ou K8s GEGM | à tagguer selon le besoin |
+| **`gegm-upscaler-worker`** | `docker.io/arnaudboy/` | **Inférence GPU** — DRCT-L / HAT-L, handler RunPod | RunPod Serverless (ne tourne jamais chez nous) | **v1.9** |
+
+**Flow à chaque upscale** (identique dans les 3 modes dev/prod-local/prod-k8s) :
+
+```
+User ─▶ Orchestrateur (backend image)  ─▶  API RunPod  ─▶  Worker image (v1.9)
+                                        (HTTPS,                  (container
+                                         RUNPOD_API_KEY)          sur GPU A10G)
+```
+
+L'endpoint RunPod `sccttzfucc5ks1` pointe en permanence sur
+`arnaudboy/gegm-upscaler-worker:v1.9`. **Tu n'y touches que si tu modifies
+`runpod-worker/handler.py`, `Dockerfile`, `requirements.txt` ou les
+poids.** Tous les changements backend/frontend qu'on fait habituellement
+vivent dans l'image backend, pas dans l'image worker.
+
+---
+
+### 6.A — Image backend (`gegm-upscaler-backend`)
+
+Embarque l'API FastAPI + le SPA Vite compilé (Dockerfile multi-stage 3
+étapes). Publication sur **GHCR** avec **mirror automatique** vers le
+registry GitLab GEGM si les variables CI sont configurées.
+
+#### Approche recommandée — via CI automatique (tag git)
 
 C'est la voie standard : un tag `v*.*.*` déclenche le build, le scan
 Trivy, le push vers GHCR + GitLab, **et** le push du chart Helm OCI.
@@ -183,7 +214,7 @@ Tags produits par le workflow sur l'image :
 > semver exact (`:0.2.0`) pour garantir la reproductibilité. `latest` est
 > pour les tests dev/compose uniquement.
 
-### 6.2 Build local manuel (pour tester le Dockerfile sans pousser)
+#### Build local manuel (pour tester le Dockerfile sans pousser)
 
 Utile pour valider un changement de `backend/Dockerfile` avant de tagger.
 
@@ -218,7 +249,7 @@ Build args disponibles (cf. `backend/Dockerfile`) :
 | `VITE_SENTRY_ENVIRONMENT` | `production` | `production-tauri` / `staging` |
 | `VITE_APP_VERSION` | (vide) | Tag release — injecté auto par la CI |
 
-### 6.3 Push manuel (si build local)
+#### Push manuel (si build local)
 
 ```bash
 # 1. Login GHCR (token PAT avec scope write:packages)
@@ -236,6 +267,97 @@ docker push registry.gitlab.gegm.internal/infra/gegm-upscaler/backend:0.2.0-dev
 > En pratique, le mirror est fait automatiquement par le job
 > `mirror-to-gitlab` de `.github/workflows/docker.yml` dès que les
 > variables GitHub `GITLAB_REGISTRY_*` sont configurées.
+
+---
+
+### 6.B — Image worker RunPod (`arnaudboy/gegm-upscaler-worker`)
+
+Image tournée **exclusivement sur les GPU de RunPod Serverless**, jamais
+chez nous. Contient PyTorch + DRCT-L + HAT-L + le `handler.py` qui
+traite les événements RunPod. Hébergée sur le compte Docker Hub personnel
+`arnaudboy/` — migration vers un compte GEGM prévue en fin de parcours
+(cf. `SUIVI.md`, section « Différé »).
+
+**Ne concerne pas les changements de code backend/frontend.** Tu ne
+rebuilds cette image que si tu modifies :
+- `runpod-worker/handler.py`
+- `runpod-worker/Dockerfile`
+- `runpod-worker/requirements.txt`
+- `runpod-worker/models/*.pth`
+- `runpod-worker/basicsr_shim/`
+
+#### Version actuelle déployée : `v1.9`
+
+Vérifiable côté RunPod : dashboard Serverless → endpoint `sccttzfucc5ks1`
+→ Container Image → `arnaudboy/gegm-upscaler-worker:v1.9`.
+
+#### Procédure de bump (ex. v1.9 → v2.0)
+
+À exécuter **uniquement** si tu as modifié un des fichiers listés
+ci-dessus. Sinon, saute cette étape.
+
+```bash
+# 1. Confirmer que tu as bien des changements à pousser
+git status runpod-worker/
+git diff HEAD~1 -- runpod-worker/ | head
+
+# 2. Télécharger / vérifier les 2 poids dans runpod-worker/models/
+#    (non commités, trop lourds pour Git)
+./runpod-worker/scripts/download_weights.sh
+ls -lh runpod-worker/models/
+# Attendu :
+#   drct-l_x4.pth  (~486 MB) — modèle principal pour x4
+#   hat-l_x2.pth   (~165 MB) — modèle principal pour x2
+
+# 3. Build de l'image — `--platform linux/amd64` est OBLIGATOIRE sur Mac
+#    Apple Silicon (M1/M2/M3/M4) : la base image RunPod n'existe qu'en
+#    amd64, Docker émule via QEMU. Sans ce flag, un warning
+#    `InvalidBaseImagePlatform` s'affiche (l'image produite reste valide
+#    mais l'intent n'est pas explicite). Sur un host Linux amd64, le flag
+#    est inutile mais ne gêne pas.
+docker build --platform linux/amd64 \
+  -t arnaudboy/gegm-upscaler-worker:v2.0 runpod-worker/
+
+# 4. Test local rapide (optionnel — vérifie que le container démarre)
+docker run --rm --platform linux/amd64 \
+  arnaudboy/gegm-upscaler-worker:v2.0 python -c "import handler; print('OK')"
+
+# 5. Login Docker Hub (une fois, token dans ~/.docker/config.json)
+docker login
+
+# 6. Push sur Docker Hub
+docker push arnaudboy/gegm-upscaler-worker:v2.0
+
+# 7. Mettre à jour l'endpoint RunPod pour utiliser v2.0 :
+#    Dashboard → Serverless → sccttzfucc5ks1 → Edit Endpoint
+#    → Container Image : arnaudboy/gegm-upscaler-worker:v2.0
+#    → Save
+#    → les prochains jobs tirent le nouveau tag (pull automatique au cold-start).
+
+# 8. Vérifier : lancer un upscale depuis l'UI, le premier job en cold-start
+#    prend ~1 min de plus (pull de l'image), les suivants normal.
+```
+
+#### Commandes alternatives — préserver v1.9 si besoin de rollback
+
+Tu peux garder plusieurs tags actifs sur Docker Hub :
+
+```bash
+# Re-tagger l'image existante locale en v1.9 avant de rebuild en v2.0
+docker tag arnaudboy/gegm-upscaler-worker:v1.9 \
+  arnaudboy/gegm-upscaler-worker:v1.9-backup
+
+# Build la v2.0 par-dessus
+docker build --platform linux/amd64 \
+  -t arnaudboy/gegm-upscaler-worker:v2.0 runpod-worker/
+docker push arnaudboy/gegm-upscaler-worker:v2.0
+
+# Si la v2.0 plante en prod, rollback immédiat :
+# Dashboard RunPod → Edit Endpoint → image: v1.9 → Save
+```
+
+Doc détaillée du handler + protocole I/O + specs endpoint :
+[`runpod-worker/README.md`](./runpod-worker/README.md).
 
 ---
 

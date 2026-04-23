@@ -104,7 +104,9 @@ config:
   # ExternalSecret — pas besoin de runtime-loading depuis Vault.
   SECRETS_BACKEND: "env"
 
-  # Modèle SR par défaut
+  # Modèle Core ML local par défaut (legacy — v2 est cloud-only, cette
+  # variable n'influence plus le routage RunPod qui se fait par scale
+  # dans `backend.app.jobs.service._model_for_scale`).
   UPSCALE_MODEL: "drct-l"
 
   # Storage S3 OVH — input (uploads) et output (résultats)

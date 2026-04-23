@@ -13,8 +13,8 @@ class JobCreate(BaseModel):
     Attributes:
         input_key: Clé de stockage de l'image source (obtenue via ``POST /api/uploads``).
         scale_factor: Facteur de multiplication des dimensions (2x ou 4x).
-        model_name: Modèle de super-résolution à utiliser. Si ``None``, le modèle
-            par défaut du serveur est utilisé (``UPSCALE_MODEL`` dans ``.env``).
+            Le modèle SR est dérivé automatiquement côté serveur :
+            x4 → DRCT-L, x2 → HAT-L. Le client n'a pas à le spécifier.
         prefer_local: Préférence utilisateur pour le routage GPU, calculée
             côté frontend via ``canRunLocalStrict()``. ``True`` = tenter le
             Core ML local (si image ≤ 5 MP et backend dispo) ; ``False`` =
@@ -25,7 +25,6 @@ class JobCreate(BaseModel):
 
     input_key: str
     scale_factor: Literal[2, 4] = 4
-    model_name: Literal["drct-l", "hat-l"] | None = None
     prefer_local: bool | None = None
 
 

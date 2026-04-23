@@ -19,6 +19,27 @@ from app.jobs.models import Job, JobStatus
 from app.jobs.schemas import JobCreate
 from app.users.models import User
 
+# Mapping scale_factor → modèle SR. Seuls ces couples (modèle, scale) ont
+# des poids pré-entraînés publics et sont supportés par le worker RunPod.
+# - DRCT-L x4 : poids `drct-l_x4.pth` (ming053l/DRCT, ~486 MB)
+# - HAT-L  x2 : poids `hat-l_x2.pth`  (XPixelGroup/HAT, ~165 MB)
+_SCALE_TO_MODEL: dict[int, str] = {2: "hat-l", 4: "drct-l"}
+
+
+def _model_for_scale(scale_factor: int) -> str:
+    """Retourne le nom du modèle SR à utiliser pour un ``scale_factor`` donné.
+
+    Raises:
+        ValueError: si le facteur n'a pas de modèle associé.
+    """
+    try:
+        return _SCALE_TO_MODEL[scale_factor]
+    except KeyError as exc:
+        raise ValueError(
+            f"scale_factor {scale_factor} non supporté — "
+            f"valeurs valides : {sorted(_SCALE_TO_MODEL.keys())}"
+        ) from exc
+
 
 async def create_job(
     payload: JobCreate,
@@ -62,7 +83,13 @@ async def create_job(
             detail="Impossible de lire l'image source",
         ) from exc
 
-    model_name = payload.model_name or settings.UPSCALE_MODEL
+    # Routage scale → modèle : chaque scale_factor a son modèle natif
+    # dédié (seuls les poids pré-entraînés existants sont utilisés).
+    # - x4 → DRCT-L (state-of-the-art, poids officiels ming053l/DRCT)
+    # - x2 → HAT-L  (poids officiels XPixelGroup/HAT ; DRCT-L x2 non publié)
+    # Tout ``model_name`` fourni par le client est ignoré — le serveur
+    # est la source de vérité pour éviter les combinaisons non supportées.
+    model_name = _model_for_scale(payload.scale_factor)
 
     job = Job(
         user_id=user.id,

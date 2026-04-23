@@ -68,6 +68,11 @@ S3_SECRET_KEY = os.environ.get("S3_SECRET_KEY", "")
 S3_REGION = os.environ.get("S3_REGION", "auto")
 
 # Cache des modèles chargés (pour éviter de recharger entre les jobs).
+# Clé = "{model_name}_x{scale_factor}" pour distinguer les variantes : les
+# poids DRCT-L x2 et DRCT-L x4 ne sont pas interchangeables (tête
+# pixelshuffle différente : 3*sf² canaux de sortie). Le worker peut servir
+# les 4 combinaisons (drct-l_x2, drct-l_x4, hat-l_x2, hat-l_x4) dans le
+# même process, chargées à la demande.
 _model_cache: dict[str, torch.nn.Module] = {}
 
 # Client S3 initialisé au premier usage (évite le coût au cold-start si
@@ -104,35 +109,83 @@ def _get_s3_client() -> Any:
     return _s3_client
 
 
-def load_model(model_name: str) -> torch.nn.Module:
+def _resolve_weights_path(model_name: str, scale_factor: int) -> Path:
+    """Localise le fichier de poids pour le couple (modèle, scale).
+
+    Cherche en priorité ``{model_name}_x{scale_factor}.pth`` (convention
+    explicite). Accepte aussi ``{model_name}.pth`` en fallback **uniquement
+    pour scale_factor=4**, pour rester compatible avec les images worker
+    historiques qui utilisaient le nom non-suffixé pour le x4.
+
+    Args:
+        model_name: Identifiant du modèle (``drct-l``, ``hat-l``).
+        scale_factor: Facteur d'upscaling (2 ou 4).
+
+    Returns:
+        Chemin vers le fichier de poids existant.
+
+    Raises:
+        FileNotFoundError: Aucune des conventions de nom ne résout un fichier.
+    """
+    versioned = MODEL_DIR / f"{model_name}_x{scale_factor}.pth"
+    if versioned.exists():
+        return versioned
+
+    if scale_factor == 4:
+        legacy = MODEL_DIR / f"{model_name}.pth"
+        if legacy.exists():
+            logger.warning(
+                "Utilisation du nom legacy {name} — à renommer en {versioned} "
+                "pour clarté (le x2 exige déjà le nommage suffixé).",
+                name=legacy.name,
+                versioned=versioned.name,
+            )
+            return legacy
+
+    raise FileNotFoundError(
+        f"Poids introuvables pour {model_name} x{scale_factor}. "
+        f"Attendu : {versioned}"
+    )
+
+
+def load_model(model_name: str, scale_factor: int) -> torch.nn.Module:
     """Charge un modèle PyTorch depuis le disque avec cache en mémoire.
 
-    Les poids sont cherchés dans ``MODEL_DIR/{model_name}.pth``.
+    Les poids sont cherchés dans ``MODEL_DIR/{model_name}_x{scale_factor}.pth``.
     Le code d'architecture du modèle doit être disponible (DRCT, HAT).
 
     Args:
         model_name: Identifiant du modèle (``drct-l``, ``hat-l``).
+        scale_factor: Facteur d'upscaling natif (2 ou 4). Le modèle est
+            construit avec ``upscale=scale_factor``, donc les poids doivent
+            correspondre — on ne peut pas charger un checkpoint x4 dans
+            une architecture x2 (tête pixelshuffle de taille différente).
 
     Returns:
         Modèle PyTorch en mode inférence, placé sur le bon device.
 
     Raises:
         FileNotFoundError: Si le fichier de poids n'existe pas.
-        ValueError: Si le modèle n'est pas reconnu.
+        ValueError: Si le modèle ou le scale_factor n'est pas reconnu.
     """
-    if model_name in _model_cache:
-        return _model_cache[model_name]
+    if scale_factor not in (2, 4):
+        raise ValueError(f"scale_factor {scale_factor} non supporté (2 ou 4 uniquement)")
 
-    weights_path = MODEL_DIR / f"{model_name}.pth"
-    if not weights_path.exists():
-        raise FileNotFoundError(f"Poids introuvables : {weights_path}")
+    cache_key = f"{model_name}_x{scale_factor}"
+    if cache_key in _model_cache:
+        return _model_cache[cache_key]
+
+    weights_path = _resolve_weights_path(model_name, scale_factor)
 
     if model_name == "drct-l":
         from drct.archs.DRCT_arch import DRCT
 
-        # DRCT-L : 12 RSTB blocks (vs 6 pour DRCT de base).
+        # DRCT-L : 12 RSTB blocks (vs 6 pour DRCT de base). ``upscale`` est
+        # l'unique paramètre qui varie entre les variantes x2 et x4 — la
+        # tête pixelshuffle en sortie dépend directement de ce facteur
+        # (``3 * upscale²`` canaux).
         model = DRCT(
-            upscale=4,
+            upscale=scale_factor,
             in_chans=3,
             img_size=64,
             window_size=16,
@@ -151,9 +204,10 @@ def load_model(model_name: str) -> torch.nn.Module:
     elif model_name == "hat-l":
         from hat.archs.hat_arch import HAT
 
-        # HAT-L : 12 RHAG blocks (vs 6 pour HAT de base).
+        # HAT-L : 12 RHAG blocks (vs 6 pour HAT de base). Idem DRCT,
+        # ``upscale`` impacte uniquement la tête pixelshuffle de sortie.
         model = HAT(
-            upscale=4,
+            upscale=scale_factor,
             in_chans=3,
             img_size=64,
             window_size=16,
@@ -183,12 +237,19 @@ def load_model(model_name: str) -> torch.nn.Module:
     model.to(DEVICE)
     _set_inference_mode(model)
 
-    logger.info("Modèle {model} chargé sur {device}", model=model_name, device=DEVICE)
+    logger.info(
+        "Modèle {model} x{sf} chargé sur {device} depuis {path}",
+        model=model_name,
+        sf=scale_factor,
+        device=DEVICE,
+        path=weights_path.name,
+    )
 
     # Warm-up cuDNN : force la compilation JIT des kernels avec la shape
     # exacte des tuiles réelles (TILE_SIZE x TILE_SIZE). Sans ça, la
     # première tuile d'un vrai job paye 3-10 min de JIT compilation
-    # invisible (aucun log entre "Modèle chargé" et "Inférence terminée").
+    # invisible. Refait pour chaque (modèle, scale) chargé — les kernels
+    # diffèrent suffisamment entre x2 et x4 pour justifier un warmup dédié.
     if DEVICE == "cuda":
         logger.info("Warm-up cuDNN en cours (JIT compilation première tuile)...")
         t0 = time.time()
@@ -198,7 +259,7 @@ def load_model(model_name: str) -> torch.nn.Module:
             torch.cuda.synchronize()
         logger.info("Warm-up cuDNN terminé en {elapsed:.1f}s", elapsed=time.time() - t0)
 
-    _model_cache[model_name] = model
+    _model_cache[cache_key] = model
     return model
 
 
@@ -340,7 +401,7 @@ def run_inference(
     Returns:
         Image PIL upscalée.
     """
-    model = load_model(model_name)
+    model = load_model(model_name, scale_factor)
 
     img_array = np.array(image, dtype=np.uint8)
     orig_h, orig_w = img_array.shape[:2]
@@ -432,8 +493,12 @@ def handler(event: dict[str, Any]) -> dict[str, Any]:
         # stratégie de pré-warm au lancement du frontend.
         if inputs.get("ping"):
             # On pré-charge le modèle par défaut pour que le prochain vrai
-            # job n'ait pas à le faire (gain ~2-3s d'init model).
-            load_model(inputs.get("model_name", DEFAULT_MODEL))
+            # job n'ait pas à le faire (gain ~2-3s d'init model). Le
+            # ``scale_factor`` du ping détermine lequel des 2 poids
+            # (x2 ou x4) est chargé — utile pour pré-warmer la bonne
+            # variante avant un batch.
+            ping_scale = int(inputs.get("scale_factor", 4))
+            load_model(inputs.get("model_name", DEFAULT_MODEL), ping_scale)
             logger.info("Warm-up ping reçu — worker chaud et modèle chargé")
             return {"status": "ready"}
 

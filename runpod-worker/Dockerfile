@@ -46,7 +46,11 @@ RUN git clone --depth 1 https://github.com/ming053l/DRCT.git /opt/drct && \
     touch /workspace/hat/__init__.py /workspace/hat/archs/__init__.py && \
     rm -rf /opt/drct /opt/hat
 
-# ── Couche 5 : poids modèles (~620 Mo, téléchargés via download_weights.sh) ──
+# ── Couche 5 : poids modèles (~1.2 Go pour les 4 fichiers) ──
+# Les 4 variantes (DRCT-L x2/x4 + HAT-L x2/x4) sont téléchargées par
+# ``scripts/download_weights.sh`` dans ``runpod-worker/models/`` avant le
+# build. Convention de nommage : ``{model}_x{scale}.pth``. Le runtime
+# route via ``handler._resolve_weights_path`` selon le scale_factor demandé.
 RUN mkdir -p ${MODEL_DIR}
 COPY models/*.pth ${MODEL_DIR}/
 

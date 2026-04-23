@@ -49,18 +49,25 @@ async def test_should_create_job(mock_task: object, client: AsyncClient) -> None
     assert data["input_width"] == 200
     assert data["input_height"] == 150
     assert data["scale_factor"] == 4
+    # x4 → DRCT-L (routé par `_model_for_scale`).
     assert data["model_name"] == "drct-l"
     mock_task.delay.assert_called_once()  # type: ignore[attr-defined]
 
 
 @patch("app.jobs.tasks.process_upscale")
-async def test_should_create_job_with_custom_params(mock_task: object, client: AsyncClient) -> None:
-    """La création accepte un scale_factor et model_name personnalisés."""
+async def test_should_route_scale_to_model(mock_task: object, client: AsyncClient) -> None:
+    """Le modèle est dérivé du scale_factor côté serveur (pas un champ client).
+
+    x4 → drct-l, x2 → hat-l. Tout ``model_name`` envoyé par le client est
+    ignoré — c'est la source de vérité serveur qui tranche.
+    """
     key = await _upload_image(client)
 
+    # scale_factor=2 → doit router sur hat-l, même si le client tente
+    # d'envoyer model_name=drct-l (champ ignoré par le schéma Pydantic).
     response = await client.post(
         "/api/jobs",
-        json={"input_key": key, "scale_factor": 2, "model_name": "hat-l"},
+        json={"input_key": key, "scale_factor": 2, "model_name": "drct-l"},
         headers=AUTH_HEADERS,
     )
 
