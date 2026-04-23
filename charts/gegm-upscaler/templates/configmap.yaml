@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "gegm-upscaler.configMapName" . }}
+  labels:
+    {{- include "gegm-upscaler.labels" . | nindent 4 }}
+data:
+  # Flags applicatifs et noms de backend (non-secret)
+  APP_ENV: {{ .Values.config.APP_ENV | quote }}
+  LOG_LEVEL: {{ .Values.config.LOG_LEVEL | quote }}
+  CORS_ORIGINS: {{ .Values.config.CORS_ORIGINS | quote }}
+  STORAGE_BACKEND: {{ .Values.config.STORAGE_BACKEND | quote }}
+  AUTH_BACKEND: {{ .Values.config.AUTH_BACKEND | quote }}
+  SECRETS_BACKEND: {{ .Values.config.SECRETS_BACKEND | quote }}
+  UPSCALE_MODEL: {{ .Values.config.UPSCALE_MODEL | quote }}
+
+  # Storage S3 (public — credentials dans le Secret)
+  S3_BUCKET: {{ .Values.config.S3_BUCKET | quote }}
+  S3_ENDPOINT_URL: {{ .Values.config.S3_ENDPOINT_URL | quote }}
+  S3_REGION: {{ .Values.config.S3_REGION | quote }}
+  S3_OUTPUT_BUCKET: {{ .Values.config.S3_OUTPUT_BUCKET | quote }}
+  S3_OUTPUT_ENDPOINT_URL: {{ .Values.config.S3_OUTPUT_ENDPOINT_URL | quote }}
+  S3_OUTPUT_REGION: {{ .Values.config.S3_OUTPUT_REGION | quote }}
+
+  # OIDC (public — client_secret dans le Secret)
+  OIDC_ISSUER: {{ .Values.config.OIDC_ISSUER | quote }}
+  OIDC_CLIENT_ID: {{ .Values.config.OIDC_CLIENT_ID | quote }}
+
+  # RunPod (public — API key dans le Secret)
+  RUNPOD_ENDPOINT_ID: {{ .Values.config.RUNPOD_ENDPOINT_ID | quote }}
+
+  # Composantes DB + Redis — `DATABASE_URL` et `REDIS_URL` sont construits
+  # à l'exécution dans le Deployment via `env:` + substitution K8s `$(VAR)`,
+  # pour inclure `$(DB_PASSWORD)` qui vient du Secret externe.
+  DB_HOST: {{ .Values.database.host | quote }}
+  DB_PORT: {{ .Values.database.port | quote }}
+  DB_NAME: {{ .Values.database.name | quote }}
+  DB_USER: {{ .Values.database.user | quote }}
+  REDIS_HOST: {{ .Values.redis.host | quote }}
+  REDIS_PORT: {{ .Values.redis.port | quote }}
+  REDIS_DB: {{ .Values.redis.database | quote }}

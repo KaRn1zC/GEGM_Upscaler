@@ -1,0 +1,250 @@
+# ============================================================================
+# values.yaml — defaults de production
+# ============================================================================
+#
+# Convention : toute valeur non encore fournie par l'infra GEGM est notée
+# `<TO_FILL:NOM_EXPLICITE>`. Grep `<TO_FILL:` pour obtenir la liste complète
+# des valeurs à renseigner avant déploiement.
+#
+# Les secrets (credentials, tokens, DSN) ne sont JAMAIS ici — ils viennent
+# de Vault via ExternalSecret (cf. bloc `externalSecret` ci-dessous).
+# Ce fichier ne contient que :
+#   - configuration publique (URLs, noms, feature flags)
+#   - références à des objets infra (Gateway, ClusterSecretStore, etc.)
+#   - defaults de ressources (replicas, CPU, mémoire, probes)
+#
+# ============================================================================
+
+global:
+  environment: production
+
+# ─── Image ──────────────────────────────────────────────────────────────────
+image:
+  # Registry GitLab GEGM — path exact à récupérer de l'infra
+  # Format attendu : registry.<gitlab-gegm-domain>/<group>/<project>/<image>
+  repository: "<TO_FILL:GITLAB_REGISTRY_URL>/gegm-upscaler-backend"
+  # Vide → utilise `.Chart.AppVersion` (= 0.1.0). Override pour déployer
+  # une version spécifique sans bumper le chart.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# Secret Docker-registry (type `kubernetes.io/dockerconfigjson`) qui
+# contient les credentials GitLab GEGM. Deux options :
+#   - créé manuellement par l'infra dans le namespace (plus simple)
+#   - synchronisé depuis Vault via un ExternalSecret dédié (plus propre)
+imagePullSecrets:
+  - name: "<TO_FILL:GITLAB_IMAGE_PULL_SECRET>"
+
+# ─── ServiceAccount ─────────────────────────────────────────────────────────
+# Le SA est annoté pour l'auth Vault Kubernetes : un role Vault est créé
+# côté infra qui mappe ce SA → policy sur `secret/gegm-upscaler/*`.
+serviceAccount:
+  create: true
+  name: ""  # vide → auto-généré à partir du fullname
+  annotations: {}
+    # Exemple (à adapter selon la convention GEGM) :
+    # vault.hashicorp.com/role: "gegm-upscaler"
+
+# ─── External Secrets Operator ──────────────────────────────────────────────
+# Synchronise les secrets Vault en Secret K8s natif consommé via envFrom.
+# Les clés attendues côté Vault doivent exister avant déploiement
+# (voir `kv/gegm-upscaler` ou path équivalent fourni par l'infra).
+externalSecret:
+  enabled: true
+  # Fréquence de resync Vault → Secret K8s (incident Vault de courte durée
+  # n'interrompt pas les pods qui ont déjà les valeurs dans leur env).
+  refreshInterval: "1h"
+  secretStoreRef:
+    name: "<TO_FILL:CLUSTER_SECRET_STORE_NAME>"  # ex: vault-cluster-store
+    kind: ClusterSecretStore
+  # Clés attendues dans Vault (chemin complet = vaultMountPath + / + remoteKey).
+  # `secretKey` = nom de la variable d'env que verra le pod.
+  # `remoteKey` = chemin relatif sous le mount Vault (ex: "db-password"
+  # si le mount est `secret/gegm-upscaler/`).
+  data:
+    # Database (CNPG Postgres)
+    - secretKey: DB_PASSWORD
+      remoteKey: "db-password"
+    # Storage S3 OVH (app — R/W sur inputs + outputs)
+    - secretKey: S3_ACCESS_KEY
+      remoteKey: "s3-access-key"
+    - secretKey: S3_SECRET_KEY
+      remoteKey: "s3-secret-key"
+    # Storage S3 OVH (output bucket — credentials pourraient être identiques
+    # ou différents selon le scoping retenu, cf. INFRA_QUESTIONS section 2)
+    - secretKey: S3_OUTPUT_ACCESS_KEY
+      remoteKey: "s3-output-access-key"
+    - secretKey: S3_OUTPUT_SECRET_KEY
+      remoteKey: "s3-output-secret-key"
+    # Keycloak OIDC
+    - secretKey: OIDC_CLIENT_SECRET
+      remoteKey: "oidc-client-secret"
+    # RunPod Serverless
+    - secretKey: RUNPOD_API_KEY
+      remoteKey: "runpod-api-key"
+    # Sentry self-hosted
+    - secretKey: SENTRY_DSN
+      remoteKey: "sentry-dsn-backend"
+
+# ─── Config publique (ConfigMap → envFrom) ─────────────────────────────────
+config:
+  APP_ENV: "production"
+  LOG_LEVEL: "INFO"
+  CORS_ORIGINS: '["https://upscaler.gegmgroup.com"]'
+
+  # Backends (voir backend/app/core/config.py)
+  STORAGE_BACKEND: "s3"
+  AUTH_BACKEND: "oidc"
+  # `env` car les secrets sont déjà injectés comme variables d'env via
+  # ExternalSecret — pas besoin de runtime-loading depuis Vault.
+  SECRETS_BACKEND: "env"
+
+  # Modèle SR par défaut
+  UPSCALE_MODEL: "drct-l"
+
+  # Storage S3 OVH — input (uploads) et output (résultats)
+  S3_BUCKET: "gegm-upscaler-inputs-prod"
+  S3_ENDPOINT_URL: "<TO_FILL:S3_ENDPOINT_URL>"  # ex: https://s3.gra.io.cloud.ovh.net
+  S3_REGION: "<TO_FILL:S3_REGION>"              # ex: gra
+  S3_OUTPUT_BUCKET: "gegm-upscaler-outputs-prod"
+  S3_OUTPUT_ENDPOINT_URL: "<TO_FILL:S3_OUTPUT_ENDPOINT_URL>"  # identique à S3_ENDPOINT_URL si même provider
+  S3_OUTPUT_REGION: "<TO_FILL:S3_OUTPUT_REGION>"
+
+  # Keycloak OIDC
+  OIDC_ISSUER: "<TO_FILL:OIDC_ISSUER>"      # ex: https://keycloak.gegm.internal/realms/gegm
+  OIDC_CLIENT_ID: "gegm-upscaler"
+
+  # RunPod Serverless
+  RUNPOD_ENDPOINT_ID: "sccttzfucc5ks1"
+
+# ─── Database (CNPG Postgres) ──────────────────────────────────────────────
+# Hypothèse : un cluster CNPG est provisionné dans le même namespace (ou
+# un namespace infra avec un endpoint exposé). `DATABASE_URL` est construit
+# à partir de ces valeurs + `DB_PASSWORD` (via ExternalSecret).
+database:
+  # Service CNPG en mode RW — conventionnellement `<cluster>-rw`.
+  host: "<TO_FILL:CNPG_RW_SERVICE>"  # ex: gegm-upscaler-pg-rw
+  port: 5432
+  name: "gegm_upscaler"
+  user: "gegm_upscaler"
+
+# ─── Redis / KeyDB ──────────────────────────────────────────────────────────
+# KeyDB = drop-in Redis. Le client `redis.asyncio` est compatible.
+redis:
+  host: "<TO_FILL:KEYDB_SERVICE>"  # ex: gegm-upscaler-keydb
+  port: 6379
+  database: 0
+
+# ─── API (FastAPI) ──────────────────────────────────────────────────────────
+api:
+  replicaCount: 2
+  containerPort: 8000
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "256Mi"
+    limits:
+      cpu: "1"
+      memory: "1Gi"
+  probes:
+    liveness:
+      path: "/api/health"
+      initialDelaySeconds: 15
+      periodSeconds: 20
+      timeoutSeconds: 3
+      failureThreshold: 3
+    readiness:
+      path: "/api/health/ready"
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      timeoutSeconds: 3
+      failureThreshold: 3
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+
+# ─── Worker Celery ──────────────────────────────────────────────────────────
+worker:
+  replicaCount: 2
+  concurrency: 2
+  metricsPort: 8001  # expose /metrics Prometheus custom (cf. app.core.metrics)
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "512Mi"
+    limits:
+      cpu: "2"
+      memory: "2Gi"
+  # Grace period suffisante pour laisser un upscale RunPod se terminer
+  # avant SIGKILL (cold start max ~15 min).
+  terminationGracePeriodSeconds: 900
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+# ─── Celery Beat (scheduler cleanup + reaper) ──────────────────────────────
+# Singleton strict : jamais plus de 1 replica (sinon les tâches planifiées
+# s'exécuteraient en double).
+beat:
+  enabled: true
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "64Mi"
+    limits:
+      cpu: "200m"
+      memory: "256Mi"
+
+# ─── Gateway API (Envoy Gateway) ───────────────────────────────────────────
+gateway:
+  enabled: true
+  # Référence à la Gateway Envoy gérée par l'infra. Cette Gateway doit
+  # déjà exister et être configurée pour accepter des HTTPRoute du namespace
+  # de l'app (ou bien être cross-namespace-enabled).
+  parentRefs:
+    - name: "<TO_FILL:ENVOY_GATEWAY_NAME>"
+      namespace: "<TO_FILL:ENVOY_GATEWAY_NAMESPACE>"
+      sectionName: "<TO_FILL:ENVOY_GATEWAY_LISTENER>"  # ex: https
+  # Hostname public de l'app — DNS doit pointer sur le LB de la Gateway.
+  hostnames:
+    - "upscaler.gegmgroup.com"
+  # cert-manager : le ClusterIssuer doit déjà être configuré côté infra.
+  # L'annotation sera posée sur la HTTPRoute (ou directement consommée via
+  # un Certificate CR séparé — à clarifier selon la convention GEGM).
+  tls:
+    clusterIssuer: "<TO_FILL:CERT_MANAGER_CLUSTER_ISSUER>"  # ex: letsencrypt-prod
+    secretName: "gegm-upscaler-tls"
+
+# ─── Monitoring (VictoriaMetrics / Prometheus Operator) ────────────────────
+# ServiceMonitor pour l'API + PodMonitor pour les workers Celery (qui
+# exposent sur le port 8001 et n'ont pas de Service face utilisateur).
+monitoring:
+  enabled: true
+  interval: "30s"
+  scrapeTimeout: "10s"
+  # Labels ajoutés aux objets ServiceMonitor/PodMonitor — utile si
+  # VictoriaMetrics filtre les resources par label.
+  additionalLabels: {}
+
+# ─── Securité pod ───────────────────────────────────────────────────────────
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# ─── NodeSelector / Tolerations / Affinity ─────────────────────────────────
+nodeSelector: {}
+tolerations: []
+affinity: {}

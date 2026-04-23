@@ -1,0 +1,15 @@
+{{- if and .Values.worker.podDisruptionBudget.enabled (gt (int .Values.worker.replicaCount) 1) -}}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "gegm-upscaler.fullname" . }}-worker
+  labels:
+    {{- include "gegm-upscaler.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  minAvailable: {{ .Values.worker.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "gegm-upscaler.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: worker
+{{- end }}

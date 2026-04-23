@@ -1,0 +1,60 @@
+# ============================================================================
+# values-staging.yaml — overrides staging
+# ============================================================================
+#
+# Appliqué par-dessus values.yaml via :
+#   helm upgrade --install gegm-upscaler oci://... \
+#       -f values.yaml -f values-staging.yaml -n gegm-upscaler-staging
+#
+# Overrides ciblés pour réduire le coût et isoler du prod : replicas ↓,
+# autoscaling off, hostname différent.
+# ============================================================================
+
+global:
+  environment: staging
+
+config:
+  APP_ENV: "staging"
+  LOG_LEVEL: "DEBUG"
+  CORS_ORIGINS: '["https://upscaler-staging.gegmgroup.com"]'
+  # Même bucket prod ou bucket dédié staging — à trancher avec l'infra
+  S3_BUCKET: "gegm-upscaler-inputs-staging"
+  S3_OUTPUT_BUCKET: "gegm-upscaler-outputs-staging"
+
+api:
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+  autoscaling:
+    enabled: false
+
+worker:
+  replicaCount: 1
+  concurrency: 1
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "256Mi"
+    limits:
+      cpu: "1"
+      memory: "1Gi"
+  podDisruptionBudget:
+    enabled: false  # pas critique en staging
+
+beat:
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "64Mi"
+    limits:
+      cpu: "100m"
+      memory: "128Mi"
+
+gateway:
+  hostnames:
+    - "upscaler-staging.gegmgroup.com"

@@ -1,0 +1,75 @@
+{{- if .Values.beat.enabled -}}
+# Celery Beat — singleton strict (replicas=1 non paramétrable) pour éviter
+# les doubles-exécutions des tâches planifiées (cleanup F.6 + reaper H.2-bis).
+# Stratégie de déploiement Recreate : on kill l'ancien avant de créer le
+# nouveau, pas de chevauchement possible.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "gegm-upscaler.fullname" . }}-beat
+  labels:
+    {{- include "gegm-upscaler.labels" . | nindent 4 }}
+    app.kubernetes.io/component: beat
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "gegm-upscaler.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: beat
+  template:
+    metadata:
+      labels:
+        {{- include "gegm-upscaler.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: beat
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "gegm-upscaler.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: beat
+          image: {{ include "gegm-upscaler.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          command: ["celery"]
+          args:
+            - "-A"
+            - "app.main.celery_app"
+            - "beat"
+            - "--loglevel=info"
+            # Schedule persisté en RAM (fichier dans /tmp emptyDir) — suffit
+            # pour un singleton, pas besoin de DB-backed scheduler.
+            - "--schedule=/tmp/celerybeat-schedule"
+          envFrom:
+            - configMapRef:
+                name: {{ include "gegm-upscaler.configMapName" . }}
+            {{- if .Values.externalSecret.enabled }}
+            - secretRef:
+                name: {{ include "gegm-upscaler.secretName" . }}
+            {{- end }}
+          env:
+            - name: DATABASE_URL
+              value: "postgresql+asyncpg://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)"
+            - name: REDIS_URL
+              value: "redis://$(REDIS_HOST):$(REDIS_PORT)/$(REDIS_DB)"
+          resources:
+            {{- toYaml .Values.beat.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

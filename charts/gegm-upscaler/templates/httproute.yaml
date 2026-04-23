@@ -1,0 +1,56 @@
+{{- if .Values.gateway.enabled -}}
+# HTTPRoute attaché à la Gateway Envoy gérée par l'infra GEGM.
+# L'API et le frontend sont servis sous le même hostname — le backend
+# sert les fichiers statiques Vite (build frontend embarqué dans l'image),
+# les routes `/api/*` tapent sur FastAPI.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "gegm-upscaler.fullname" . }}
+  labels:
+    {{- include "gegm-upscaler.labels" . | nindent 4 }}
+  {{- if .Values.gateway.tls.clusterIssuer }}
+  annotations:
+    # cert-manager détecte cette annotation et provisionne un Certificate
+    # pour le hostname — le TLS secret est stocké dans `secretName` (voir
+    # listener de la Gateway qui le référence).
+    cert-manager.io/cluster-issuer: {{ .Values.gateway.tls.clusterIssuer | quote }}
+  {{- end }}
+spec:
+  parentRefs:
+    {{- range .Values.gateway.parentRefs }}
+    - name: {{ .name }}
+      {{- with .namespace }}
+      namespace: {{ . }}
+      {{- end }}
+      {{- with .sectionName }}
+      sectionName: {{ . }}
+      {{- end }}
+    {{- end }}
+  hostnames:
+    {{- range .Values.gateway.hostnames }}
+    - {{ . | quote }}
+    {{- end }}
+  rules:
+    # Routes /api et /metrics → FastAPI.
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api
+        - path:
+            type: PathPrefix
+            value: /metrics
+      backendRefs:
+        - name: {{ include "gegm-upscaler.fullname" . }}-api
+          port: {{ .Values.api.containerPort }}
+    # Catch-all → FastAPI aussi (sert le SPA Vite + assets statiques).
+    # Si plus tard on sépare en un service frontend dédié, ajouter un
+    # backendRef différent ici.
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: {{ include "gegm-upscaler.fullname" . }}-api
+          port: {{ .Values.api.containerPort }}
+{{- end }}
