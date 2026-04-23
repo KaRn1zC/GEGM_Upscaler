@@ -114,31 +114,49 @@ docker compose down -v
 
 ---
 
-### Approche C — Prod entreprise (future)
+### Approche C — Prod entreprise sur Kubernetes GEGM
 
-Déploiement sur serveur GEGM après réponse de l'infra (cf. [`INFRA_QUESTIONS.md`](./INFRA_QUESTIONS.md)).
+Déploiement sur le cluster K8s GEGM via un **Helm chart dédié**
+([`charts/gegm-upscaler/`](./charts/gegm-upscaler/)). L'app est packagée
+dans une image Docker unique qui embarque à la fois l'API FastAPI et le
+SPA Vite (Dockerfile multi-stage — `python-builder` + `frontend-builder` +
+`runtime`). Un seul Deployment, un seul cycle de release.
+
+**Stack cible** (confirmée par l'infra GEGM) :
+- **Envoy Gateway** (Gateway API `HTTPRoute`, pas Ingress)
+- **External Secrets Operator** (sync Vault → Secret K8s)
+- **CloudNativePG** (Postgres), **KeyDB** (Redis drop-in)
+- **cert-manager** (TLS via `ClusterIssuer`)
+- **VictoriaMetrics** (format Prometheus compatible) — à terme OpenTelemetry
+- **Registry GitLab GEGM** pour les images (pas GHCR sur le cluster)
+
+**Cycle de release complet** :
 
 ```bash
-# Sur le serveur prod
-docker login ghcr.io -u <user> -p <PAT-github>
+# 1. Bumper la version dans les 3 fichiers alignés :
+#    frontend/package.json, frontend/src-tauri/Cargo.toml,
+#    frontend/src-tauri/tauri.conf.json
+git commit -am "chore: bump version to 0.2.0"
+git tag v0.2.0 && git push --tags
 
-# Pull l'image publiée par le CI au dernier tag
-docker compose -f docker-compose.prod.yml pull
+# 2. Workflows CI déclenchés automatiquement :
+#    - docker.yml → build amd64+arm64 + Trivy + push GHCR
+#                 → job `mirror-to-gitlab` copie l'image vers GitLab GEGM
+#    - release-tauri.yml → build .dmg macOS + signature updater
+#
+# 3. Déployer sur le cluster K8s (après remplissage des placeholders
+#    <TO_FILL:...> dans values.yaml avec les infos infra) :
+helm upgrade --install gegm-upscaler ./charts/gegm-upscaler \
+  -n gegm-upscaler -f charts/gegm-upscaler/values.yaml
 
-# Démarrer
-docker compose -f docker-compose.prod.yml up -d
+# 4. Distribution desktop : publier la draft GitHub release
+gh release edit v0.2.0 --repo KaRn1zC/GEGM_Upscaler --draft=false
 ```
 
-Le fichier `docker-compose.prod.yml` sera créé en Phase E (préparation infra entreprise). Il remplacera le `build:` local par `image: ghcr.io/karn1zc/gegm-upscaler-backend:${RELEASE_TAG}`.
-
-**Cycle de release** :
-
-```bash
-git tag v0.1.0 && git push --tags
-# → déclenche .github/workflows/docker.yml
-# → build multi-arch (amd64 + arm64)
-# → push ghcr.io/karn1zc/gegm-upscaler-backend:{0.1.0, 0.1, latest}
-```
+Procédure détaillée :
+- [`SUIVI.md` § 1.5](./SUIVI.md) — synthèse « reste à faire » + séquence jour-J
+- [`DISTRIBUTION.md`](./DISTRIBUTION.md) — release `.dmg` desktop + migration S3 OVH
+- [`INFRA_QUESTIONS.md`](./INFRA_QUESTIONS.md) — questions en attente côté infra
 
 ---
 
@@ -236,6 +254,7 @@ GEGM_Upscaler/
 │   │   ├── uploads/      # Module métier — upload d'images
 │   │   ├── upscaling/    # Pipeline SR (tiling, preprocessing, routage GPU)
 │   │   └── users/        # Module métier — utilisateurs
+│   ├── Dockerfile        # Image multi-stage (python-builder + frontend-builder + runtime)
 │   ├── alembic/          # Migrations DB versionnées
 │   ├── tests/            # Tests pytest (85+ tests)
 │   └── Dockerfile        # Image multi-stage (builder → runtime)
@@ -254,15 +273,22 @@ GEGM_Upscaler/
 │   ├── Dockerfile
 │   └── requirements.txt
 │
-├── monitoring/            # Configs Prometheus, Loki, Promtail, Grafana
+├── monitoring/            # Configs Prometheus, Loki, Promtail, Grafana (dev)
 │   ├── prometheus/
 │   ├── promtail/
 │   ├── loki/
 │   └── grafana/
 │       └── dashboards/   # api.json, celery.json, system.json
 │
-├── docker-compose.yml              # Stack applicative (pg + redis + api + worker)
-└── docker-compose.monitoring.yml   # Stack monitoring (overlay)
+├── charts/gegm-upscaler/  # Helm chart pour déploiement K8s prod (Phase E)
+│   ├── Chart.yaml
+│   ├── values.yaml        # prod (placeholders <TO_FILL:...> à renseigner)
+│   ├── values-staging.yaml
+│   └── templates/         # 13 manifests : Deployment, HTTPRoute, ExternalSecret,
+│                          # BackendTrafficPolicy (rate limit), PrometheusRule (alerting)...
+│
+├── docker-compose.yml              # Stack applicative dev (pg + redis + api + worker)
+└── docker-compose.monitoring.yml   # Stack monitoring dev (overlay)
 ```
 
 ## Variables d'environnement
