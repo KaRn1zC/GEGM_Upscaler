@@ -90,7 +90,12 @@ externalSecret:
 config:
   APP_ENV: "production"
   LOG_LEVEL: "INFO"
-  CORS_ORIGINS: '["https://upscaler.gegmgroup.com"]'
+  # Origines autorisées pour les appels cross-origin :
+  # - le site web servi par FastAPI lui-même (même origine, surtout pour les outils
+  #   externes qui pourraient appeler l'API)
+  # - `tauri://localhost` (macOS) et `https://tauri.localhost` (Windows/Linux)
+  #   pour permettre au .dmg/.msi/.AppImage installé de tirer sur l'API distante
+  CORS_ORIGINS: '["https://upscaler.gegmgroup.com","tauri://localhost","https://tauri.localhost"]'
 
   # Backends (voir backend/app/core/config.py)
   STORAGE_BACKEND: "s3"

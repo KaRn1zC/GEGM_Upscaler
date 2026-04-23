@@ -70,6 +70,11 @@ jobs:
           # secret GitHub. La clé publique vit dans tauri.conf.json.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # URL absolue du backend distant — nécessaire pour que le .dmg
+          # installé puisse joindre l'API (sinon fetch("/api/*") résout
+          # sur tauri://localhost/api/* sans backend derrière). Valeur par
+          # défaut pour la prod GEGM ; overridable via var repo GitHub.
+          VITE_API_BASE: ${{ vars.VITE_API_BASE_PROD || 'https://upscaler.gegmgroup.com/api' }}
         with:
           projectPath: frontend
           # `__VERSION__` est remplacé par `tauri-action` avec la version

@@ -1,4 +1,17 @@
-export const API_BASE = "/api";
+/**
+ * Préfixe base des appels API.
+ *
+ * - **Dev web (Vite seul)** : `/api` (relatif). Vite proxy `/api/*` vers
+ *   `localhost:8000` via `vite.config.ts`.
+ * - **Prod web (served par FastAPI + StaticFiles)** : `/api` relatif aussi,
+ *   car le frontend est servi depuis la même origine que l'API.
+ * - **Tauri desktop (.dmg installé)** : `tauri://localhost/api/*` ne pointe
+ *   sur rien → il faut une URL absolue vers le backend distant. Le build
+ *   release Tauri doit être généré avec `VITE_API_BASE=https://upscaler.gegmgroup.com/api`.
+ *
+ * La variable est lue au build-time par Vite (pas de runtime-switching).
+ */
+export const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
 
 export const ACCEPTED_IMAGE_TYPES: Record<string, string[]> = {
   "image/png": [".png"],
