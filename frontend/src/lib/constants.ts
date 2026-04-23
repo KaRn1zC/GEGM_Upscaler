@@ -26,10 +26,23 @@ export const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 export const SCALE_FACTORS = [2, 4] as const;
 export type ScaleFactor = (typeof SCALE_FACTORS)[number];
 
-export const MODEL_OPTIONS = [
-  { value: "drct-l", label: "DRCT-L (recommandé)" },
-  { value: "hat-l", label: "HAT-L (fallback)" },
-] as const;
+/**
+ * Mapping ``scale_factor → modèle SR`` — **source de vérité** côté UI
+ * pour l'affichage uniquement. Le backend applique le même mapping pour
+ * la création de job (cf. ``backend/app/jobs/service._model_for_scale``).
+ *
+ * Chaque scale a son modèle pré-entraîné dédié (pas de fallback, pas de
+ * downscale) :
+ *   - x4 → DRCT-L (poids officiels ming053l/DRCT, state-of-the-art)
+ *   - x2 → HAT-L  (poids officiels XPixelGroup/HAT ; DRCT-L x2 non publié)
+ *
+ * Le client n'envoie plus ``model_name`` dans ``POST /api/jobs`` — le
+ * backend ignore ce champ et le déduit de ``scale_factor``.
+ */
+export const SCALE_TO_MODEL: Record<ScaleFactor, { name: string; label: string }> = {
+  2: { name: "hat-l", label: "HAT-L" },
+  4: { name: "drct-l", label: "DRCT-L" },
+};
 
 export const JOB_STATUS_LABELS: Record<string, string> = {
   pending: "En attente",

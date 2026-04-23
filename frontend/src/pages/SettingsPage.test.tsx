@@ -1,5 +1,4 @@
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "@/lib/api";
 import { SettingsPage } from "./SettingsPage";
@@ -70,21 +69,18 @@ describe("SettingsPage", () => {
     expect(btn4.className).toContain("bg-primary");
   });
 
-  it("should update the default model when a different option is clicked", async () => {
-    const user = userEvent.setup();
+  it("should display the scale→model mapping (info only)", () => {
     render(<SettingsPage />);
-
-    const hatBtn = screen.getByRole("button", { name: /HAT-L/ });
-    await user.click(hatBtn);
-
-    expect(hatBtn.className).toContain("border-primary/50");
+    // Nouveau comportement : le modèle n'est plus un choix mais une info
+    // dérivée du scale_factor. La section "Modèles utilisés" liste
+    // explicitement le mapping ×2 → HAT-L et ×4 → DRCT-L.
+    expect(screen.getByText(/Modèles utilisés/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/HAT-L/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/DRCT-L/i).length).toBeGreaterThan(0);
   });
 
   it("should render the About section with static infos", () => {
     render(<SettingsPage />);
     expect(screen.getByText("0.1.0")).toBeInTheDocument();
-    // "DRCT-L" apparaît aussi dans le bouton modèle — on cible le label
-    // de l'À-propos qui a le format exact "DRCT-L (fallback HAT-L)".
-    expect(screen.getByText(/DRCT-L \(fallback/)).toBeInTheDocument();
   });
 });

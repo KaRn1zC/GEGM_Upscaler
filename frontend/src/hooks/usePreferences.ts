@@ -5,13 +5,11 @@ const STORAGE_KEY = "gegm-upscaler-prefs";
 
 export interface UserPreferences {
   defaultScaleFactor: ScaleFactor;
-  defaultModel: "drct-l" | "hat-l";
   apiBaseUrl: string;
 }
 
 const DEFAULT_PREFERENCES: UserPreferences = {
   defaultScaleFactor: 4,
-  defaultModel: "drct-l",
   apiBaseUrl: "/api",
 };
 

@@ -14,16 +14,17 @@ interface JobStore {
   isLoading: boolean;
 
   fetchJobs: () => Promise<void>;
+  // Le backend dérive `model_name` de `scale_factor` (cf. SCALE_TO_MODEL).
+  // Le client n'a plus à le fournir — simplification côté UI + garantie
+  // anti-incohérence (un seul endroit qui tranche le couple model/scale).
   submitJob: (
     inputKey: string,
     scaleFactor: ScaleFactor,
-    modelName?: string,
     preferLocal?: boolean | null,
   ) => Promise<JobResponse>;
   submitBatch: (
     files: File[],
     scaleFactor: ScaleFactor,
-    modelName?: string,
     preferLocal?: boolean | null,
   ) => Promise<BatchItemResult[]>;
   updateJobProgress: (jobId: string, progress: number, status: string) => void;
@@ -46,18 +47,17 @@ export const useJobStore = create<JobStore>((set) => ({
     }
   },
 
-  submitJob: async (inputKey, scaleFactor, modelName, preferLocal) => {
+  submitJob: async (inputKey, scaleFactor, preferLocal) => {
     const job = await createJob({
       input_key: inputKey,
       scale_factor: scaleFactor,
-      model_name: modelName,
       prefer_local: preferLocal,
     });
     set((s) => ({ jobs: [job, ...s.jobs] }));
     return job;
   },
 
-  submitBatch: async (files, scaleFactor, modelName, preferLocal) => {
+  submitBatch: async (files, scaleFactor, preferLocal) => {
     // Upload + création de job en parallèle pour chaque fichier.
     // On capture les erreurs individuellement pour que l'échec d'un
     // fichier ne bloque pas les autres.
@@ -69,7 +69,6 @@ export const useJobStore = create<JobStore>((set) => ({
           const job = await createJob({
             input_key: uploaded.key,
             scale_factor: scaleFactor,
-            model_name: modelName,
             prefer_local: preferLocal,
           });
           newJobs.push(job);

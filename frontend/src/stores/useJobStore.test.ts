@@ -103,7 +103,7 @@ describe("useJobStore", () => {
       const { result } = renderHook(() => useJobStore());
 
       await act(async () => {
-        await result.current.submitJob("uploads/abc.png", 4, "drct-l");
+        await result.current.submitJob("uploads/abc.png", 4);
       });
 
       expect(result.current.jobs).toHaveLength(2);

@@ -15,7 +15,7 @@ import { useTranslation } from "react-i18next";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { getCurrentUser, getReadiness } from "@/lib/api";
 import type { HealthResponse, UserResponse } from "@/lib/api";
-import { MODEL_OPTIONS, SCALE_FACTORS, type ScaleFactor } from "@/lib/constants";
+import { SCALE_FACTORS, SCALE_TO_MODEL, type ScaleFactor } from "@/lib/constants";
 import { usePreferences } from "@/hooks/usePreferences";
 import { useUpdaterStore } from "@/stores/useUpdaterStore";
 import { isTauri } from "@/lib/tauri";
@@ -131,26 +131,20 @@ export function SettingsPage() {
             </div>
           </div>
 
-          {/* Modèle par défaut */}
+          {/* Routage scale → modèle (info seule) */}
           <div>
             <label className="text-xs text-muted-foreground uppercase tracking-wider block mb-2">
-              Modèle par défaut
+              Modèles utilisés
             </label>
-            <div className="flex gap-2">
-              {MODEL_OPTIONS.map((m) => (
-                <button
-                  key={m.value}
-                  onClick={() => updatePreference("defaultModel", m.value)}
-                  className={cn(
-                    "text-xs px-3 py-2 rounded-lg border transition-all",
-                    preferences.defaultModel === m.value
-                      ? "border-primary/50 bg-primary/5 text-foreground"
-                      : "border-border text-muted-foreground hover:text-foreground hover:border-border/80",
-                  )}
-                >
-                  {m.label}
-                </button>
-              ))}
+            <div className="text-xs text-muted-foreground space-y-1 font-mono">
+              <p>
+                <span className="text-foreground">×2</span> →{" "}
+                {SCALE_TO_MODEL[2].label}
+              </p>
+              <p>
+                <span className="text-foreground">×4</span> →{" "}
+                {SCALE_TO_MODEL[4].label}
+              </p>
             </div>
           </div>
 

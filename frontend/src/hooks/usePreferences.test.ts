@@ -5,12 +5,10 @@ import { usePreferences } from "./usePreferences";
 const STORAGE_KEY = "gegm-upscaler-prefs";
 
 describe("usePreferences", () => {
-
   it("should return default values on first load", () => {
     const { result } = renderHook(() => usePreferences());
 
     expect(result.current.preferences.defaultScaleFactor).toBe(4);
-    expect(result.current.preferences.defaultModel).toBe("drct-l");
     expect(result.current.preferences.apiBaseUrl).toBe("/api");
   });
 
@@ -30,13 +28,12 @@ describe("usePreferences", () => {
   it("should load persisted values on mount", () => {
     localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ defaultScaleFactor: 2, defaultModel: "hat-l" }),
+      JSON.stringify({ defaultScaleFactor: 2 }),
     );
 
     const { result } = renderHook(() => usePreferences());
 
     expect(result.current.preferences.defaultScaleFactor).toBe(2);
-    expect(result.current.preferences.defaultModel).toBe("hat-l");
     // Les clés non persistées doivent garder leur valeur par défaut.
     expect(result.current.preferences.apiBaseUrl).toBe("/api");
   });
@@ -46,7 +43,6 @@ describe("usePreferences", () => {
 
     act(() => {
       result.current.updatePreference("defaultScaleFactor", 2);
-      result.current.updatePreference("defaultModel", "hat-l");
     });
 
     act(() => {
@@ -54,7 +50,6 @@ describe("usePreferences", () => {
     });
 
     expect(result.current.preferences.defaultScaleFactor).toBe(4);
-    expect(result.current.preferences.defaultModel).toBe("drct-l");
   });
 
   it("should fallback to defaults if localStorage contains invalid JSON", () => {
@@ -65,14 +60,14 @@ describe("usePreferences", () => {
     expect(result.current.preferences.defaultScaleFactor).toBe(4);
   });
 
-  it("should update multiple preferences independently", () => {
+  it("should update scale factor independently", () => {
     const { result } = renderHook(() => usePreferences());
 
     act(() => {
-      result.current.updatePreference("defaultModel", "hat-l");
+      result.current.updatePreference("defaultScaleFactor", 2);
     });
 
-    expect(result.current.preferences.defaultModel).toBe("hat-l");
-    expect(result.current.preferences.defaultScaleFactor).toBe(4);
+    expect(result.current.preferences.defaultScaleFactor).toBe(2);
+    expect(result.current.preferences.apiBaseUrl).toBe("/api");
   });
 });

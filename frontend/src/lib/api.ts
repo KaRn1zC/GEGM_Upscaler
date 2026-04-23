@@ -33,7 +33,6 @@ export interface UploadResponse {
 export interface JobCreateParams {
   input_key: string;
   scale_factor?: number;
-  model_name?: string;
   prefer_local?: boolean | null;
 }
 

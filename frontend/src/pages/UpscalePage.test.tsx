@@ -75,34 +75,33 @@ describe("UpscalePage", () => {
     expect(screen.getByRole("heading", { name: "Upscaler" })).toBeInTheDocument();
   });
 
-  it("should render the DropZone and settings toggle + scale factors", () => {
+  it("should render the DropZone and scale factor selectors", () => {
     render(<UpscalePage />);
     // "Glisser une image" apparaît à la fois dans le sous-titre du hero
-    // et dans la DropZone — on accepte plusieurs matchs, on veut juste
-    // vérifier que le texte est présent.
+    // et dans la DropZone — on accepte plusieurs matchs.
     expect(screen.getAllByText(/Glisser une image/i).length).toBeGreaterThan(0);
-    // Le bouton pour ouvrir le panneau avancé est labellé "Paramètres".
-    expect(screen.getByRole("button", { name: /Paramètres/i })).toBeInTheDocument();
-    // Les sélecteurs 2× et 4× sont toujours visibles, hors de l'AnimatePresence.
+    // Les sélecteurs 2× et 4× sont toujours visibles.
     expect(screen.getByRole("button", { name: "2×" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "4×" })).toBeInTheDocument();
+    // L'info du modèle courant est affichée à côté des facteurs.
+    expect(screen.getByText(/Modèle/i)).toBeInTheDocument();
+  });
+
+  it("should display the derived model for the current scale factor", async () => {
+    const user = userEvent.setup();
+    render(<UpscalePage />);
+
+    // Par défaut : ×4 → DRCT-L.
+    expect(screen.getByText(/DRCT-L/i)).toBeInTheDocument();
+
+    // Switch à ×2 → HAT-L.
+    await user.click(screen.getByRole("button", { name: "2×" }));
+    expect(screen.getByText(/HAT-L/i)).toBeInTheDocument();
   });
 
   it("should not show the Lancer button until a file is selected", () => {
     render(<UpscalePage />);
     expect(screen.queryByRole("button", { name: /Lancer l'upscale/i })).not.toBeInTheDocument();
-  });
-
-  it("should toggle the extended settings panel on click", async () => {
-    const user = userEvent.setup();
-    render(<UpscalePage />);
-    // Le panneau étendu contient le sélecteur de modèle — caché par défaut.
-    expect(screen.queryByText(/DRCT-L/)).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: /Paramètres/i }));
-
-    // Après ouverture, le sélecteur de modèle apparaît.
-    expect(screen.getByText(/DRCT-L/)).toBeInTheDocument();
   });
 
   it("should display completed jobs in the 'Récents' section", async () => {

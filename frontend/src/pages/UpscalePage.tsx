@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { m, AnimatePresence } from "motion/react";
-import { Settings2, Sparkles } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import { DropZone, type DropZoneHandle } from "@/components/DropZone";
 import { JobCard } from "@/components/JobCard";
 import { CompareSlider } from "@/components/CompareSlider";
@@ -10,7 +10,7 @@ import { useSystemResources } from "@/hooks/useSystemResources";
 import { useTauriDragDrop } from "@/hooks/useTauriDragDrop";
 import { useJobStore } from "@/stores/useJobStore";
 import { cn } from "@/lib/utils";
-import { MODEL_OPTIONS, SCALE_FACTORS, type ScaleFactor } from "@/lib/constants";
+import { SCALE_FACTORS, SCALE_TO_MODEL, type ScaleFactor } from "@/lib/constants";
 import { getDownloadUrl, getUploadUrl, type JobResponse } from "@/lib/api";
 import { downloadFile } from "@/lib/tauri";
 
@@ -30,12 +30,11 @@ export function UpscalePage() {
   } = useJobStore();
 
   const [scaleFactor, setScaleFactor] = useState<ScaleFactor>(4);
-  const [modelName, setModelName] = useState<"drct-l" | "hat-l">(
-    MODEL_OPTIONS[0].value,
-  );
+  // Modèle dérivé du scale_factor — le backend applique le même mapping,
+  // c'est lui qui tranche. L'UI affiche juste l'info pour transparence.
+  const modelLabel = SCALE_TO_MODEL[scaleFactor].label;
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [compareJob, setCompareJob] = useState<JobResponse | null>(null);
-  const [showSettings, setShowSettings] = useState(false);
   // Fichier choisi (drop, Parcourir, drag-drop Tauri) en attente de
   // lancement explicite via le bouton "Lancer l'upscale" — évite le run
   // automatique qui piégeait l'utilisateur s'il voulait ajuster les settings.
@@ -47,6 +46,9 @@ export function UpscalePage() {
   // écrit de manière synchrone et préserve l'invariant "un seul run en vol".
   const launchingRef = useRef(false);
   const dropZoneRef = useRef<DropZoneHandle>(null);
+
+  // On a retiré showSettings/setShowSettings — plus de panneau étendu
+  // depuis que le modèle est dérivé automatiquement du scale_factor.
 
   useEffect(() => {
     void fetchJobs();
@@ -97,12 +99,7 @@ export function UpscalePage() {
       const preferLocal = verdict ? verdict.can_run_local : false;
 
       const uploaded = await upload(file);
-      const job = await submitJob(
-        uploaded.key,
-        scaleFactor,
-        modelName,
-        preferLocal,
-      );
+      const job = await submitJob(uploaded.key, scaleFactor, preferLocal);
       setActiveJobId(job.id);
       // Libère la DropZone pour la prochaine image — la preview disparaît,
       // l'utilisateur peut enchaîner.
@@ -114,7 +111,7 @@ export function UpscalePage() {
       launchingRef.current = false;
       setIsLaunching(false);
     }
-  }, [pendingFile, isUploading, upload, submitJob, scaleFactor, modelName, refreshResources]);
+  }, [pendingFile, isUploading, upload, submitJob, scaleFactor, refreshResources]);
 
   // Drag-drop natif depuis Finder (Tauri) — en mode web le hook est no-op
   // et react-dropzone prend le relais. On passe par l'API impérative de
@@ -218,7 +215,7 @@ export function UpscalePage() {
                 <Sparkles className="w-4 h-4" strokeWidth={2} />
                 {isLaunching ? "Lancement…" : "Lancer l'upscale"}
                 <span className="font-mono text-xs opacity-80">
-                  · ×{scaleFactor} · {modelName}
+                  · ×{scaleFactor} · {modelLabel}
                 </span>
               </m.button>
             )}
@@ -254,25 +251,8 @@ export function UpscalePage() {
             )}
           </AnimatePresence>
 
-          {/* Paramètres */}
+          {/* Sélecteur de facteur — choix unique, le modèle est dérivé. */}
           <div className="mt-6 flex items-center gap-3 flex-wrap">
-            <m.button
-              onClick={() => setShowSettings((s) => !s)}
-              whileHover={{ scale: 1.02, y: -1 }}
-              whileTap={{ scale: 0.97 }}
-              transition={{ type: "spring", stiffness: 400, damping: 25 }}
-              className={cn(
-                "flex items-center gap-2 text-xs px-4 py-2 rounded-lg font-medium transition-colors border",
-                showSettings
-                  ? "bg-primary/10 text-primary border-primary/40"
-                  : "bg-card text-muted-foreground hover:text-foreground border-border",
-              )}
-            >
-              <Settings2 className="w-3.5 h-3.5" />
-              Paramètres
-            </m.button>
-
-            {/* Sélecteur de facteur avec indicateur glissant */}
             <div className="relative flex items-center gap-1 bg-card border border-border rounded-lg p-1">
               {SCALE_FACTORS.map((f) => (
                 <m.button
@@ -302,46 +282,10 @@ export function UpscalePage() {
                 </m.button>
               ))}
             </div>
+            <p className="text-[10px] font-sans uppercase tracking-[0.22em] text-muted-foreground">
+              Modèle : <span className="font-mono text-foreground">{modelLabel}</span>
+            </p>
           </div>
-
-          {/* Panneau paramètres étendu */}
-          <AnimatePresence initial={false}>
-            {showSettings && (
-              <m.div
-                key="settings-panel"
-                initial={{ opacity: 0, height: 0, marginTop: 0 }}
-                animate={{ opacity: 1, height: "auto", marginTop: 12 }}
-                exit={{ opacity: 0, height: 0, marginTop: 0 }}
-                transition={{ type: "spring", stiffness: 260, damping: 28 }}
-                className="overflow-hidden"
-              >
-                <div className="p-5 rounded-xl border border-border bg-card">
-                  <label className="block text-[10px] font-sans uppercase tracking-[0.22em] text-muted-foreground mb-3">
-                    Modèle de super-résolution
-                  </label>
-                  <div className="flex gap-2">
-                    {MODEL_OPTIONS.map((option) => (
-                      <m.button
-                        key={option.value}
-                        onClick={() => setModelName(option.value)}
-                        whileHover={{ y: -1 }}
-                        whileTap={{ scale: 0.96 }}
-                        transition={{ type: "spring", stiffness: 400, damping: 25 }}
-                        className={cn(
-                          "text-xs px-4 py-2.5 rounded-lg border font-medium transition-colors",
-                          modelName === option.value
-                            ? "border-primary/60 bg-primary/10 text-foreground glow-sm"
-                            : "border-border text-muted-foreground hover:text-foreground",
-                        )}
-                      >
-                        {option.label}
-                      </m.button>
-                    ))}
-                  </div>
-                </div>
-              </m.div>
-            )}
-          </AnimatePresence>
         </m.section>
 
         {/* Jobs actifs */}

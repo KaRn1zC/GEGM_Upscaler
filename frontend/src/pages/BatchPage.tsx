@@ -38,12 +38,7 @@ export function BatchPage() {
         const verdict = await refreshResources();
         const preferLocal = verdict ? verdict.can_run_local : false;
 
-        const results = await submitBatch(
-          files,
-          scaleFactor,
-          undefined,
-          preferLocal,
-        );
+        const results = await submitBatch(files, scaleFactor, preferLocal);
         const errors = results
           .filter((r) => r.error !== null)
           .map((r) => `${r.file.name} : ${r.error}`);
