@@ -6,7 +6,7 @@ import {
   Routes,
   useLocation,
 } from "react-router-dom";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, type ReactNode } from "react";
 import { LazyMotion, domMax, m, AnimatePresence } from "motion/react";
 import {
   ImageUp,
@@ -19,13 +19,16 @@ import {
 import { cn } from "@/lib/utils";
 import { CapabilityBadge } from "@/components/CapabilityBadge";
 import { UpdateBanner } from "@/components/UpdateBanner";
+import { useAuth } from "@/hooks/useAuth";
 import { useGlobalShortcuts } from "@/hooks/useGlobalShortcuts";
 import { useJobNotifications } from "@/hooks/useJobNotifications";
-import { UpscalePage } from "@/pages/UpscalePage";
+import { AuthCallbackPage } from "@/pages/AuthCallbackPage";
 import { BatchPage } from "@/pages/BatchPage";
 import { GalleryPage } from "@/pages/GalleryPage";
 import { HistoryPage } from "@/pages/HistoryPage";
+import { LoginPage } from "@/pages/LoginPage";
 import { SettingsPage } from "@/pages/SettingsPage";
+import { UpscalePage } from "@/pages/UpscalePage";
 
 // Code-split — la command palette (+ cmdk + radix-dialog) est chargée à
 // la demande dans son propre chunk, pas dans le bundle initial.
@@ -151,10 +154,22 @@ function Sidebar() {
 }
 
 /**
- * Container des routes avec transitions fluides.
- * Chaque changement de page déclenche un fade + slide vertical doux.
+ * Wrapper qui redirige vers /login si l'utilisateur n'est pas authentifié.
+ * En mode `dev`, `isAuthenticated` est toujours `true` → transparent.
+ * En mode `oidc`, redirige sur /login tant que le user n'a pas de tokens.
  */
-function AnimatedRoutes() {
+function RequireAuth({ children }: { children: ReactNode }) {
+  const { isAuthenticated } = useAuth();
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+  return <>{children}</>;
+}
+
+/**
+ * Routes protégées + sidebar — affichées seulement quand authentifié.
+ */
+function AuthenticatedApp() {
   const location = useLocation();
 
   // Active les raccourcis clavier globaux ⌘1..⌘5 / ⌘U / ⌘B.
@@ -165,25 +180,34 @@ function AnimatedRoutes() {
   useJobNotifications();
 
   return (
-    <AnimatePresence mode="wait" initial={false}>
-      <m.div
-        key={location.pathname}
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -8 }}
-        transition={{ duration: 0.32, ease: EASE_OUT_EXPO }}
-        className="h-full"
-      >
-        <Routes location={location}>
-          <Route path="/upscale" element={<UpscalePage />} />
-          <Route path="/batch" element={<BatchPage />} />
-          <Route path="/gallery" element={<GalleryPage />} />
-          <Route path="/history" element={<HistoryPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
-          <Route path="*" element={<Navigate to="/upscale" replace />} />
-        </Routes>
-      </m.div>
-    </AnimatePresence>
+    <div className="flex h-dvh overflow-hidden bg-background">
+      <Sidebar />
+      <main className="flex-1 overflow-y-auto relative">
+        <AnimatePresence mode="wait" initial={false}>
+          <m.div
+            key={location.pathname}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.32, ease: EASE_OUT_EXPO }}
+            className="h-full"
+          >
+            <Routes location={location}>
+              <Route path="/upscale" element={<UpscalePage />} />
+              <Route path="/batch" element={<BatchPage />} />
+              <Route path="/gallery" element={<GalleryPage />} />
+              <Route path="/history" element={<HistoryPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="*" element={<Navigate to="/upscale" replace />} />
+            </Routes>
+          </m.div>
+        </AnimatePresence>
+      </main>
+      <Suspense fallback={null}>
+        <CommandPalette />
+      </Suspense>
+      <UpdateBanner />
+    </div>
   );
 }
 
@@ -191,16 +215,20 @@ export default function App() {
   return (
     <LazyMotion features={domMax} strict>
       <BrowserRouter>
-        <div className="flex h-dvh overflow-hidden bg-background">
-          <Sidebar />
-          <main className="flex-1 overflow-y-auto relative">
-            <AnimatedRoutes />
-          </main>
-          <Suspense fallback={null}>
-            <CommandPalette />
-          </Suspense>
-          <UpdateBanner />
-        </div>
+        <Routes>
+          {/* Routes publiques (hors RequireAuth) */}
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/auth/callback" element={<AuthCallbackPage />} />
+          {/* Reste de l'app protégé par auth */}
+          <Route
+            path="/*"
+            element={
+              <RequireAuth>
+                <AuthenticatedApp />
+              </RequireAuth>
+            }
+          />
+        </Routes>
       </BrowserRouter>
     </LazyMotion>
   );

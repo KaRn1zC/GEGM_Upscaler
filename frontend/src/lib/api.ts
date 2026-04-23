@@ -52,11 +52,23 @@ export interface HealthResponse {
 
 // ── Helpers ──────────────────────────────────────────────────
 
-const AUTH_TOKEN = import.meta.env.VITE_DEV_TOKEN ?? "dev-secret-token-change-me";
+/**
+ * Récupère le token courant de façon synchrone pour construire les
+ * headers/URLs. En mode `dev`, c'est le static `VITE_DEV_TOKEN` ; en
+ * mode `oidc`, c'est l'accessToken stocké dans `useAuthStore` (peut
+ * être "" si pas encore loggé).
+ *
+ * Pour les appels avec refresh automatique (préféré pour fetch), utiliser
+ * `await useAuthStore.getState().getValidToken()`. Pour les URLs balises
+ * HTML (<img>, <a download>, EventSource), on reste sur le token courant
+ * car on ne peut pas attendre avant de le coller dans l'attribut.
+ */
+import { getCurrentAccessToken, useAuthStore } from "@/stores/useAuthStore";
 
-function headers(): HeadersInit {
+async function headers(): Promise<HeadersInit> {
+  const token = (await useAuthStore.getState().getValidToken()) ?? "";
   return {
-    Authorization: `Bearer ${AUTH_TOKEN}`,
+    Authorization: `Bearer ${token}`,
     "Content-Type": "application/json",
   };
 }
@@ -75,7 +87,7 @@ function headers(): HeadersInit {
  */
 function buildAuthedUrl(path: string): string {
   const separator = path.includes("?") ? "&" : "?";
-  return `${path}${separator}token=${encodeURIComponent(AUTH_TOKEN)}`;
+  return `${path}${separator}token=${encodeURIComponent(getCurrentAccessToken())}`;
 }
 
 async function handleResponse<T>(res: Response): Promise<T> {
@@ -92,9 +104,10 @@ export async function uploadImage(file: File): Promise<UploadResponse> {
   const form = new FormData();
   form.append("file", file);
 
+  const token = (await useAuthStore.getState().getValidToken()) ?? "";
   const res = await fetch(`${API_BASE}/uploads`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${AUTH_TOKEN}` },
+    headers: { Authorization: `Bearer ${token}` },
     body: form,
   });
 
@@ -108,20 +121,20 @@ export async function createJob(
 ): Promise<JobResponse> {
   const res = await fetch(`${API_BASE}/jobs`, {
     method: "POST",
-    headers: headers(),
+    headers: await headers(),
     body: JSON.stringify(params),
   });
   return handleResponse<JobResponse>(res);
 }
 
 export async function listJobs(): Promise<JobResponse[]> {
-  const res = await fetch(`${API_BASE}/jobs`, { headers: headers() });
+  const res = await fetch(`${API_BASE}/jobs`, { headers: await headers() });
   return handleResponse<JobResponse[]>(res);
 }
 
 export async function getJob(jobId: string): Promise<JobResponse> {
   const res = await fetch(`${API_BASE}/jobs/${jobId}`, {
-    headers: headers(),
+    headers: await headers(),
   });
   return handleResponse<JobResponse>(res);
 }
@@ -129,7 +142,7 @@ export async function getJob(jobId: string): Promise<JobResponse> {
 export async function cancelJob(jobId: string): Promise<void> {
   const res = await fetch(`${API_BASE}/jobs/${jobId}`, {
     method: "DELETE",
-    headers: headers(),
+    headers: await headers(),
   });
   if (!res.ok) {
     const body = await res.text();
@@ -173,7 +186,7 @@ export function getProgressStreamUrl(jobId: string): string {
 // ── Users ────────────────────────────────────────────────────
 
 export async function getCurrentUser(): Promise<UserResponse> {
-  const res = await fetch(`${API_BASE}/users/me`, { headers: headers() });
+  const res = await fetch(`${API_BASE}/users/me`, { headers: await headers() });
   return handleResponse<UserResponse>(res);
 }
 

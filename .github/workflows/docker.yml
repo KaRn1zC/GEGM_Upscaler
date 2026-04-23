@@ -72,6 +72,18 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # Build-args pour configurer le frontend Vite au build-time.
+          # Les vars sont lues depuis les GitHub Variables du repo —
+          # tant que `vars.VITE_AUTH_MODE_PROD` n'est pas defini, le
+          # build utilise les defaults du Dockerfile (mode `dev`, pas
+          # de redirect OIDC). Une fois les URLs Keycloak obtenues de
+          # l'infra, definir ces vars pour que les images taguees
+          # `v*.*.*` soient buildees en mode OIDC prod.
+          build-args: |
+            VITE_AUTH_MODE=${{ vars.VITE_AUTH_MODE_PROD || 'dev' }}
+            VITE_API_BASE=${{ vars.VITE_API_BASE_PROD || '' }}
+            VITE_OIDC_ISSUER=${{ vars.VITE_OIDC_ISSUER_PROD || '' }}
+            VITE_OIDC_CLIENT_ID=${{ vars.VITE_OIDC_CLIENT_ID_PROD || 'gegm-upscaler' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

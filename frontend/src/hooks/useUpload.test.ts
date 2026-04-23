@@ -98,6 +98,12 @@ describe("useUpload", () => {
     expect(result.current.progress).toBe(50);
   });
 
+  // Depuis l'ajout du flow OIDC PKCE, `upload()` await d'abord
+  // `useAuthStore.getValidToken()` (microtask) avant de créer le XHR.
+  // Les tests doivent donc attendre `isUploading === true` (signal que
+  // le token est résolu et le XHR est en vol) avant de simuler des
+  // events XHR — sinon on cible un listener qui n'existe pas encore.
+
   it("should resolve with the upload result on success", async () => {
     const { result } = renderHook(() => useUpload());
     const file = new File(["data"], "test.png", { type: "image/png" });
@@ -106,6 +112,8 @@ describe("useUpload", () => {
     act(() => {
       uploadPromise = result.current.upload(file);
     });
+
+    await waitFor(() => expect(result.current.isUploading).toBe(true));
 
     act(() => {
       mockXhr.simulateLoad(
@@ -137,6 +145,8 @@ describe("useUpload", () => {
       // Erreur attendue, on l'absorbe.
     });
 
+    await waitFor(() => expect(result.current.isUploading).toBe(true));
+
     act(() => {
       mockXhr.simulateLoad(413, "Too large");
     });
@@ -156,6 +166,8 @@ describe("useUpload", () => {
     const uploadPromise = result.current.upload(file).catch(() => {
       // Erreur attendue.
     });
+
+    await waitFor(() => expect(result.current.isUploading).toBe(true));
 
     act(() => {
       mockXhr.simulateError();

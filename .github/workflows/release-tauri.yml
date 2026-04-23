@@ -75,6 +75,13 @@ jobs:
           # sur tauri://localhost/api/* sans backend derrière). Valeur par
           # défaut pour la prod GEGM ; overridable via var repo GitHub.
           VITE_API_BASE: ${{ vars.VITE_API_BASE_PROD || 'https://upscaler.gegmgroup.com/api' }}
+          # OIDC config — le .dmg distribué aux users doit utiliser le
+          # flow OIDC PKCE Keycloak (pas le token statique dev). Si les
+          # vars ne sont pas configurees, le .dmg reste en mode `dev`
+          # avec le token statique (utile pour tests internes).
+          VITE_AUTH_MODE: ${{ vars.VITE_AUTH_MODE_PROD || 'dev' }}
+          VITE_OIDC_ISSUER: ${{ vars.VITE_OIDC_ISSUER_PROD || '' }}
+          VITE_OIDC_CLIENT_ID: ${{ vars.VITE_OIDC_CLIENT_ID_PROD || 'gegm-upscaler' }}
         with:
           projectPath: frontend
           # `__VERSION__` est remplacé par `tauri-action` avec la version

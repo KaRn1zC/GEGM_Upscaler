@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import { API_BASE } from "@/lib/constants";
+import { useAuthStore } from "@/stores/useAuthStore";
 
 interface UploadState {
   isUploading: boolean;
@@ -14,8 +15,6 @@ interface UploadResult {
   content_type: string;
 }
 
-const AUTH_TOKEN = import.meta.env.VITE_DEV_TOKEN ?? "dev-secret-token-change-me";
-
 export function useUpload() {
   const [state, setState] = useState<UploadState>({
     isUploading: false,
@@ -24,6 +23,13 @@ export function useUpload() {
   });
 
   const upload = useCallback(async (file: File): Promise<UploadResult> => {
+    // Récupère (et refresh si nécessaire) le token AVANT de marquer
+    // `isUploading: true`. En faisant le setState APRÈS le await,
+    // le flag devient observable par les consommateurs (tests, UI)
+    // seulement une fois que le XHR sera immédiatement créé et en vol
+    // dans le même tick synchrone — pas d'état transitoire trompeur.
+    const token = (await useAuthStore.getState().getValidToken()) ?? "";
+
     setState({ isUploading: true, progress: 0, error: null });
 
     return new Promise<UploadResult>((resolve, reject) => {
@@ -57,7 +63,7 @@ export function useUpload() {
       });
 
       xhr.open("POST", `${API_BASE}/uploads`);
-      xhr.setRequestHeader("Authorization", `Bearer ${AUTH_TOKEN}`);
+      xhr.setRequestHeader("Authorization", `Bearer ${token}`);
       xhr.send(form);
     });
   }, []);

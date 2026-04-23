@@ -43,6 +43,25 @@ COPY alembic.ini ./
 # ──────────────────────────────────────────────────────────────
 FROM node:20-slim AS frontend-builder
 
+# Args injectés à `docker build --build-arg` pour configurer l'app au
+# build-time (Vite remplace les `import.meta.env.VITE_*` par leur valeur
+# dans le bundle). Defaults = mode dev → pas de redirect OIDC.
+#
+# Pour un build prod, passer dans le workflow CI :
+#   --build-arg VITE_AUTH_MODE=oidc
+#   --build-arg VITE_API_BASE=https://upscaler.gegmgroup.com/api
+#   --build-arg VITE_OIDC_ISSUER=https://keycloak.gegm.internal/realms/gegm
+#   --build-arg VITE_OIDC_CLIENT_ID=gegm-upscaler
+ARG VITE_AUTH_MODE=dev
+ARG VITE_API_BASE=
+ARG VITE_OIDC_ISSUER=
+ARG VITE_OIDC_CLIENT_ID=gegm-upscaler
+
+ENV VITE_AUTH_MODE=$VITE_AUTH_MODE \
+    VITE_API_BASE=$VITE_API_BASE \
+    VITE_OIDC_ISSUER=$VITE_OIDC_ISSUER \
+    VITE_OIDC_CLIENT_ID=$VITE_OIDC_CLIENT_ID
+
 WORKDIR /build/frontend
 
 # ── Couche 1 : dépendances npm (cachée tant que package-lock inchangé) ──
