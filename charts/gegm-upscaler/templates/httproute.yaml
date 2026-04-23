@@ -31,21 +31,10 @@ spec:
     {{- range .Values.gateway.hostnames }}
     - {{ . | quote }}
     {{- end }}
+  # Unique backend : FastAPI sert à la fois l'API (/api/*) et le frontend
+  # SPA Vite embarqué dans la même image (StaticFiles + fallback index.html
+  # pour les deep links React Router — cf. `backend/app/main.py`).
   rules:
-    # Routes /api et /metrics → FastAPI.
-    - matches:
-        - path:
-            type: PathPrefix
-            value: /api
-        - path:
-            type: PathPrefix
-            value: /metrics
-      backendRefs:
-        - name: {{ include "gegm-upscaler.fullname" . }}-api
-          port: {{ .Values.api.containerPort }}
-    # Catch-all → FastAPI aussi (sert le SPA Vite + assets statiques).
-    # Si plus tard on sépare en un service frontend dédié, ajouter un
-    # backendRef différent ici.
     - matches:
         - path:
             type: PathPrefix

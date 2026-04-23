@@ -29,6 +29,11 @@ data:
   # RunPod (public — API key dans le Secret)
   RUNPOD_ENDPOINT_ID: {{ .Values.config.RUNPOD_ENDPOINT_ID | quote }}
 
+  # Frontend SPA servi par FastAPI — `FRONTEND_DIST` est déjà default dans
+  # le Dockerfile (/app/frontend/dist), mais on le met explicite ici pour
+  # que le chart soit auto-documenté et pour override en dev si besoin.
+  FRONTEND_DIST: {{ .Values.config.FRONTEND_DIST | default "/app/frontend/dist" | quote }}
+
   # Composantes DB + Redis — `DATABASE_URL` et `REDIS_URL` sont construits
   # à l'exécution dans le Deployment via `env:` + substitution K8s `$(VAR)`,
   # pour inclure `$(DB_PASSWORD)` qui vient du Secret externe.

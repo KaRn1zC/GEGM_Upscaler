@@ -1,0 +1,43 @@
+{{- if and .Values.gateway.enabled .Values.rateLimit.enabled -}}
+# Rate limiting côté Envoy Gateway (CRD spécifique `gateway.envoyproxy.io`).
+# Protège l'app contre :
+#   - un bug frontend qui boucle sur l'API
+#   - un script user qui abuse des endpoints d'upload
+#   - une tentative de DoS léger depuis l'intérieur GEGM
+#
+# Stratégie `Local` : rate limit en mémoire de chaque replica Envoy.
+# Pas de coordination cross-replica (nécessiterait un Global rate limit
+# avec Redis externe). Pour notre charge et notre modèle de menace,
+# `Local` est suffisant et sans dépendance.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: {{ include "gegm-upscaler.fullname" . }}-rate-limit
+  labels:
+    {{- include "gegm-upscaler.labels" . | nindent 4 }}
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: {{ include "gegm-upscaler.fullname" . }}
+  rateLimit:
+    type: Local
+    local:
+      rules:
+        {{- range .Values.rateLimit.rules }}
+        - limit:
+            requests: {{ .requests }}
+            unit: {{ .unit }}
+          clientSelectors:
+            - sourceCIDR:
+                value: {{ .sourceCIDR | default "0.0.0.0/0" | quote }}
+            {{- if .headerMatch }}
+              type: Exact
+            {{- end }}
+          {{- if .headerMatch }}
+            - headers:
+                - name: {{ .headerMatch.name | quote }}
+                  value: {{ .headerMatch.value | quote }}
+          {{- end }}
+        {{- end }}
+{{- end }}

@@ -2,10 +2,13 @@
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import sentry_sdk
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from loguru import logger
 from prometheus_fastapi_instrumentator import Instrumentator
 
@@ -125,8 +128,39 @@ async def readiness_check() -> dict[str, object]:
     all_ok = all(v == "ok" for v in checks.values())
 
     if not all_ok:
-        from fastapi import HTTPException
-
         raise HTTPException(status_code=503, detail={"status": "unhealthy", "checks": checks})
 
     return {"status": "ready", "checks": checks}
+
+
+# ── Frontend SPA embarqué (prod Docker) ────────────────────────
+# Quand `FRONTEND_DIST` pointe vers un dossier `dist/` Vite existant, on
+# sert le SPA sur toutes les routes non-API. Les routes `/api/*` ont
+# priorité (enregistrées plus haut). Pour les deep links React Router
+# (ex: `/gallery/123`), StaticFiles renvoie 404 et notre handler 404
+# custom retombe sur `index.html` — comportement SPA classique.
+_frontend_dist = Path(settings.FRONTEND_DIST) if settings.FRONTEND_DIST else None
+
+if _frontend_dist and _frontend_dist.is_dir():
+    logger.info("Frontend SPA servi depuis {path}", path=str(_frontend_dist))
+    # `html=True` sert `index.html` sur les requêtes de dossier.
+    app.mount(
+        "/",
+        StaticFiles(directory=str(_frontend_dist), html=True),
+        name="frontend",
+    )
+
+    @app.exception_handler(404)
+    async def _spa_fallback(request: Request, exc: HTTPException) -> JSONResponse | FileResponse:
+        """Fallback SPA : retombe sur index.html pour les deep links React Router.
+
+        Conserve le 404 JSON pour les routes `/api/*` et `/metrics` — ce
+        sont des vraies 404 API qu'il ne faut pas masquer.
+        """
+        path = request.url.path
+        if path.startswith("/api/") or path == "/metrics":
+            return JSONResponse({"detail": exc.detail}, status_code=404)
+        index = _frontend_dist / "index.html" if _frontend_dist else None
+        if index and index.is_file():
+            return FileResponse(index)
+        return JSONResponse({"detail": "Not found"}, status_code=404)

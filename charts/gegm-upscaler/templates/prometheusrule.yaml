@@ -1,0 +1,169 @@
+{{- if and .Values.monitoring.enabled .Values.alerting.enabled -}}
+# Règles d'alerting Prometheus déclenchées par le Prometheus Operator
+# (ou son équivalent VictoriaMetrics). L'infra GEGM a confirmé un
+# VictoriaMetrics compatible format Prometheus — ce `PrometheusRule` sera
+# soit ingéré directement (si VM Operator est configuré pour watcher les
+# CRD monitoring.coreos.com), soit à convertir en `VMRule` (trivial :
+# même schéma sous `VictoriaMetrics/v1beta1`).
+#
+# Routing vers Slack/email/pagerduty est géré par l'Alertmanager GEGM —
+# aucun `AlertmanagerConfig` n'est inclus ici (serait spécifique à leur
+# config).
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "gegm-upscaler.fullname" . }}
+  labels:
+    {{- include "gegm-upscaler.labels" . | nindent 4 }}
+    {{- with .Values.monitoring.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: gegm-upscaler.rules
+      interval: 30s
+      rules:
+        # ─── Santé du pipeline ──────────────────────────────────────
+        - alert: HighJobFailureRate
+          expr: |
+            sum(rate(upscale_jobs_total{status="failed", namespace="{{ .Release.Namespace }}"}[5m]))
+            /
+            sum(rate(upscale_jobs_total{namespace="{{ .Release.Namespace }}"}[5m]))
+            > 0.1
+          for: 5m
+          labels:
+            severity: warning
+            component: pipeline
+            service: gegm-upscaler
+          annotations:
+            summary: "Taux d'échec des jobs > 10 % sur les 5 dernières minutes"
+            description: |
+              Plus de 10 % des jobs d'upscaling échouent. Vérifier en priorité :
+              - Les logs du worker Celery (erreurs RunPod, timeouts, OOM)
+              - L'état de l'endpoint RunPod ({{ .Values.config.RUNPOD_ENDPOINT_ID }})
+              - Les quotas/credentials S3
+            runbook_url: "https://github.com/KaRn1zC/GEGM_Upscaler/blob/main/SUIVI.md"
+
+        - alert: WorkerStalled
+          # Aucun job traité depuis 10 min alors qu'il y en avait en file.
+          # Signale un worker bloqué (OOM silencieux, deadlock Celery, etc.).
+          expr: |
+            rate(upscale_jobs_total{namespace="{{ .Release.Namespace }}"}[10m]) == 0
+            and on() sum(celery_queue_length{namespace="{{ .Release.Namespace }}"}) > 0
+          for: 10m
+          labels:
+            severity: critical
+            component: worker
+            service: gegm-upscaler
+          annotations:
+            summary: "Worker Celery bloqué (queue non vide mais zéro traitement)"
+            description: |
+              Le worker n'a traité aucun job dans les 10 dernières minutes
+              alors que la queue n'est pas vide. Probablement un deadlock
+              ou un OOM silencieux. Action : kubectl rollout restart
+              deployment/{{ include "gegm-upscaler.fullname" . }}-worker
+              -n {{ .Release.Namespace }}
+
+        # ─── Latence API ────────────────────────────────────────────
+        - alert: HighApiLatency
+          # P95 latence des endpoints /api/* > 5s.
+          expr: |
+            histogram_quantile(0.95,
+              sum by (le, handler) (
+                rate(http_request_duration_seconds_bucket{
+                  namespace="{{ .Release.Namespace }}",
+                  handler=~"/api/.*"
+                }[5m])
+              )
+            ) > 5
+          for: 5m
+          labels:
+            severity: warning
+            component: api
+            service: gegm-upscaler
+          annotations:
+            summary: "Latence P95 API > 5s sur {{`{{ $labels.handler }}`}}"
+            description: |
+              Les requêtes API deviennent lentes. Vérifier :
+              - Connexion DB (CNPG rw service reachable ?)
+              - Pool de connexions SQLAlchemy saturé
+              - Pression CPU/mémoire sur les pods API
+
+        # ─── Disponibilité pods ─────────────────────────────────────
+        - alert: ApiPodsDown
+          expr: |
+            kube_deployment_status_replicas_available{
+              namespace="{{ .Release.Namespace }}",
+              deployment="{{ include "gegm-upscaler.fullname" . }}-api"
+            } == 0
+          for: 2m
+          labels:
+            severity: critical
+            component: api
+            service: gegm-upscaler
+          annotations:
+            summary: "Aucun pod API disponible"
+            description: |
+              L'API est totalement down — aucun pod en état Ready.
+              Les utilisateurs voient des 503 sur upscaler.gegmgroup.com.
+              Vérifier les logs + events du Deployment.
+
+        - alert: WorkerPodsDown
+          expr: |
+            kube_deployment_status_replicas_available{
+              namespace="{{ .Release.Namespace }}",
+              deployment="{{ include "gegm-upscaler.fullname" . }}-worker"
+            } == 0
+          for: 5m
+          labels:
+            severity: critical
+            component: worker
+            service: gegm-upscaler
+          annotations:
+            summary: "Aucun worker Celery disponible"
+            description: |
+              Tous les workers sont down — aucun job ne sera traité tant
+              qu'un pod ne redevient pas Ready. Les jobs s'accumulent
+              dans la queue KeyDB.
+
+        {{- if .Values.beat.enabled }}
+        - alert: BeatPodDown
+          # Beat est singleton — si son seul pod est down, les tâches
+          # périodiques (cleanup, reaper H.2-bis) ne tournent plus.
+          expr: |
+            kube_deployment_status_replicas_available{
+              namespace="{{ .Release.Namespace }}",
+              deployment="{{ include "gegm-upscaler.fullname" . }}-beat"
+            } == 0
+          for: 10m
+          labels:
+            severity: warning
+            component: beat
+            service: gegm-upscaler
+          annotations:
+            summary: "Celery Beat scheduler indisponible"
+            description: |
+              Le scheduler Beat est down depuis 10 min. Le reaper ne tourne
+              plus → les jobs zombies ne sont plus marqués FAILED, et le
+              cleanup quotidien ne libère plus l'espace disque.
+        {{- end }}
+
+        # ─── Redémarrages ───────────────────────────────────────────
+        - alert: PodCrashLooping
+          expr: |
+            rate(kube_pod_container_status_restarts_total{
+              namespace="{{ .Release.Namespace }}",
+              pod=~"{{ include "gegm-upscaler.fullname" . }}-.*"
+            }[15m]) > 0
+          for: 15m
+          labels:
+            severity: warning
+            service: gegm-upscaler
+          annotations:
+            summary: "Pod {{`{{ $labels.pod }}`}} en crash loop"
+            description: |
+              Le pod redémarre régulièrement — probablement un crash au
+              démarrage (erreur config, DB unreachable, secret manquant).
+              Commande de debug : kubectl logs
+              {{`{{ $labels.pod }}`}} -n {{ .Release.Namespace }} --previous
+{{- end }}

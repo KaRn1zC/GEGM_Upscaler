@@ -84,6 +84,14 @@ class Settings(BaseSettings):
     # ── Monitoring ───────────────────────────────────────────────
     SENTRY_DSN: str = ""
 
+    # ── Frontend embarqué ────────────────────────────────────────
+    # Chemin absolu vers le dossier `dist/` du frontend Vite. Si renseigné
+    # et que le dossier existe, FastAPI sert le SPA sur toutes les routes
+    # non-API (fallback `index.html` pour les deep links React Router).
+    # Vide → pas de frontend servi (dev local où Vite tourne sur :5173).
+    # En prod Docker, positionné à `/app/frontend/dist` par le Dockerfile.
+    FRONTEND_DIST: str = ""
+
     # ── Secrets ──────────────────────────────────────────────────
     SECRETS_BACKEND: Literal["env", "infisical", "vault"] = "env"
     # Infisical : un seul token suffit en SaaS, project_id et environment

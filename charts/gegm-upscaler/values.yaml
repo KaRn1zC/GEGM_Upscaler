@@ -117,6 +117,11 @@ config:
   # RunPod Serverless
   RUNPOD_ENDPOINT_ID: "sccttzfucc5ks1"
 
+  # Frontend SPA embarqué dans l'image backend (chemin absolu dans le
+  # conteneur). Vide → FastAPI ne sert pas de frontend (utile en dev
+  # local où Vite tourne sur son propre port).
+  FRONTEND_DIST: "/app/frontend/dist"
+
 # ─── Database (CNPG Postgres) ──────────────────────────────────────────────
 # Hypothèse : un cluster CNPG est provisionné dans le même namespace (ou
 # un namespace infra avec un endpoint exposé). `DATABASE_URL` est construit
@@ -217,6 +222,23 @@ gateway:
     clusterIssuer: "<TO_FILL:CERT_MANAGER_CLUSTER_ISSUER>"  # ex: letsencrypt-prod
     secretName: "gegm-upscaler-tls"
 
+# ─── Rate limiting (Envoy Gateway BackendTrafficPolicy) ───────────────────
+# Protection simple contre les usages abusifs. `Local` = en mémoire de
+# chaque replica Envoy, pas de coordination cross-replica (acceptable
+# pour un outil interne ~50 users).
+#
+# Pour affiner (ex: limite plus stricte sur /api/uploads, ou par user),
+# dupliquer cette section avec un `headerMatch` sur le token Bearer.
+rateLimit:
+  enabled: true
+  rules:
+    # 200 req/min par IP — suffit pour un usage normal (navigation +
+    # polling SSE + quelques uploads). Un user qui dépasse est
+    # probablement un bug frontend ou un script.
+    - requests: 200
+      unit: Minute
+      sourceCIDR: "0.0.0.0/0"
+
 # ─── Monitoring (VictoriaMetrics / Prometheus Operator) ────────────────────
 # ServiceMonitor pour l'API + PodMonitor pour les workers Celery (qui
 # exposent sur le port 8001 et n'ont pas de Service face utilisateur).
@@ -224,9 +246,17 @@ monitoring:
   enabled: true
   interval: "30s"
   scrapeTimeout: "10s"
-  # Labels ajoutés aux objets ServiceMonitor/PodMonitor — utile si
-  # VictoriaMetrics filtre les resources par label.
+  # Labels ajoutés aux objets ServiceMonitor/PodMonitor/PrometheusRule —
+  # utile si VictoriaMetrics filtre les resources par label.
   additionalLabels: {}
+
+# ─── Alerting (Prometheus Rules) ───────────────────────────────────────────
+# 6 règles pré-définies pour détecter : taux d'échec anormal, worker
+# bloqué, latence API élevée, pods down (API/worker/beat), crash loop.
+# Le routing Slack/email est géré par l'Alertmanager GEGM (aucun
+# `AlertmanagerConfig` inclus — c'est la config interne de l'infra).
+alerting:
+  enabled: true
 
 # ─── Securité pod ───────────────────────────────────────────────────────────
 podSecurityContext:

@@ -1,11 +1,18 @@
 # Dockerfile multi-stage pour le backend GEGM Upscaler.
-# Stage 1 (builder) : installation des dépendances via uv dans un venv.
-# Stage 2 (runtime) : image minimale avec uniquement le venv et le code.
+#
+# Stage 1 (python-builder) : installation des dépendances Python via uv.
+# Stage 2 (frontend-builder) : build du SPA Vite en parallèle.
+# Stage 3 (runtime) : image minimale avec venv Python + dist/ frontend + code.
+#
+# En prod K8s, l'image unique sert à la fois l'API FastAPI et le frontend
+# (FastAPI mount StaticFiles + fallback SPA sur `index.html` — cf.
+# `backend/app/main.py` en bas de fichier). Un seul Deployment, une seule
+# image, un seul cycle de release.
 
 # ──────────────────────────────────────────────────────────────
-# Stage 1 — Builder
+# Stage 1 — Python builder
 # ──────────────────────────────────────────────────────────────
-FROM python:3.12-slim-bookworm AS builder
+FROM python:3.12-slim-bookworm AS python-builder
 
 # Installation de uv depuis l'image officielle (binaire statique).
 COPY --from=ghcr.io/astral-sh/uv:0.5.13 /uv /uvx /bin/
@@ -32,11 +39,27 @@ COPY backend/ ./backend/
 COPY alembic.ini ./
 
 # ──────────────────────────────────────────────────────────────
-# Stage 2 — Runtime
+# Stage 2 — Frontend builder (Vite)
+# ──────────────────────────────────────────────────────────────
+FROM node:20-slim AS frontend-builder
+
+WORKDIR /build/frontend
+
+# ── Couche 1 : dépendances npm (cachée tant que package-lock inchangé) ──
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci --no-audit --no-fund --prefer-offline
+
+# ── Couche 2 : code + build ──
+COPY frontend/ ./
+# `tsc -b && vite build` → /build/frontend/dist/
+RUN npm run build
+
+# ──────────────────────────────────────────────────────────────
+# Stage 3 — Runtime
 # ──────────────────────────────────────────────────────────────
 FROM python:3.12-slim-bookworm AS runtime
 
-# Deps runtime seulement (pas de build-essential).
+# Deps runtime seulement (pas de build-essential, pas de Node).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     && rm -rf /var/lib/apt/lists/* \
@@ -46,14 +69,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONPATH=/app/backend
+    PYTHONPATH=/app/backend \
+    FRONTEND_DIST=/app/frontend/dist
 
 WORKDIR /app
 
-# Copie du venv et du code depuis le builder.
-COPY --from=builder --chown=app:app /opt/venv /opt/venv
-COPY --from=builder --chown=app:app /build/backend /app/backend
-COPY --from=builder --chown=app:app /build/alembic.ini /app/
+# Backend Python (venv + code)
+COPY --from=python-builder --chown=app:app /opt/venv /opt/venv
+COPY --from=python-builder --chown=app:app /build/backend /app/backend
+COPY --from=python-builder --chown=app:app /build/alembic.ini /app/
+
+# Frontend build statique (servi par FastAPI StaticFiles)
+COPY --from=frontend-builder --chown=app:app /build/frontend/dist /app/frontend/dist
 
 USER app
 EXPOSE 8000
