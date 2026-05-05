@@ -108,6 +108,13 @@ COPY --from=python-builder --chown=app:app /build/alembic.ini /app/
 # Frontend build statique (servi par FastAPI StaticFiles)
 COPY --from=frontend-builder --chown=app:app /build/frontend/dist /app/frontend/dist
 
+# Pré-création des dossiers montés en volume (storage local + cache modèles
+# Core ML). Sans ce mkdir+chown, Docker crée les volumes nommés en root:root
+# au premier mount et l'app non-root (UID 1000) ne peut pas y écrire.
+# En K8s, le securityContext.fsGroup=1000 du chart Helm joue le même rôle.
+RUN mkdir -p /data /models \
+    && chown -R app:app /data /models
+
 USER app
 EXPOSE 8000
 
