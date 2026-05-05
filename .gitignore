@@ -71,12 +71,13 @@ runpod-worker/models/*.pth
 *.bak
 *.tmp
 
-# Playwright MCP — snapshots accessibility + screenshots E2E ponctuels
+# Outils dev locaux — non versionnés
 .playwright-mcp/
 e2e-*.png
-
-# Claude Code — paramètres user-spécifiques (permissions locales, etc.)
-.claude/settings.local.json
+.claude/
+.mcp.json
+CLAUDE.md
+frontend/CLAUDE.md
 
 # Docs
 INFRA_QUESTIONS.md

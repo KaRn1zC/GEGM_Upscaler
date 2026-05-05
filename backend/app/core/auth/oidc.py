@@ -39,15 +39,18 @@ _HTTP_TIMEOUT: float = 10.0
 class OIDCAuth(AuthBackend):
     """Authentification par validation JWT OIDC.
 
+    La validation est purement cryptographique : signature vérifiée contre
+    le JWKS publié par l'IdP, claims ``iss``/``aud``/``exp`` validés. Aucun
+    secret client n'est requis (JWKS est public). Si un jour on bascule
+    vers de l'introspection RFC 7662 ou un flow BFF, le ``client_secret``
+    devra être lu depuis ``settings.OIDC_CLIENT_SECRET`` à ce moment-là.
+
     Args:
         issuer: URL de l'IdP (ex. ``https://accounts.google.com``).
         client_id: ID client OIDC (valeur de ``aud`` attendue dans les tokens).
-        client_secret: Secret client OIDC. Actuellement non utilisé pour la
-            validation (JWKS est publique), mais conservé pour supporter
-            ultérieurement l'introspection de token (RFC 7662) si besoin.
     """
 
-    def __init__(self, issuer: str, client_id: str, client_secret: str) -> None:
+    def __init__(self, issuer: str, client_id: str) -> None:
         if not issuer:
             raise ValueError("OIDCAuth : issuer ne peut pas être vide")
         if not client_id:
@@ -55,7 +58,6 @@ class OIDCAuth(AuthBackend):
 
         self._issuer = issuer.rstrip("/")
         self._client_id = client_id
-        self._client_secret = client_secret
         # État du cache JWKS (clé publique du trousseau + timestamp de fetch).
         self._jwks_cache: Any = None
         self._jwks_cache_ts: float = 0.0

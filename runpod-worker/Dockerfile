@@ -1,4 +1,5 @@
-# Image RunPod avec CUDA 12.4 + PyTorch préinstallé.
+# Image RunPod avec CUDA 12.8.1 + PyTorch 2.8 préinstallé (compat
+# Blackwell RTX 5090 + Ampere/Ada).
 # Structure en couches optimisée : deps système → deps Python → code app
 # → poids modèle (les couches les plus stables en premier pour le cache).
 

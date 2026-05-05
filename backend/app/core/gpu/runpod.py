@@ -14,14 +14,22 @@ L'endpoint RunPod doit exposer un handler compatible avec le format
 d'entrée/sortie défini dans ``runpod-worker/handler.py``.
 """
 
+from __future__ import annotations
+
 import base64
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
-import aioboto3
 import httpx
 from loguru import logger
 
 from app.core.gpu.interface import GPUBackend, GPUJobResult, GPUJobStatus, UpscaleParams
+
+if TYPE_CHECKING:
+    # Importé uniquement pour le typing — aioboto3 est une dépendance lourde
+    # qu'on ne veut pas charger au démarrage si la config S3 du worker RunPod
+    # n'est pas active. L'import réel est fait paresseusement dans ``__init__``.
+    import aioboto3
 
 # Mapping des statuts RunPod vers nos statuts internes.
 _STATUS_MAP: dict[str, GPUJobStatus] = {
@@ -92,6 +100,8 @@ class RunPodBackend(GPUBackend):
         self._s3_region = s3_region
         self._s3_session: aioboto3.Session | None = None
         if s3_endpoint_url and s3_access_key and s3_secret_key:
+            import aioboto3
+
             self._s3_session = aioboto3.Session(
                 aws_access_key_id=s3_access_key,
                 aws_secret_access_key=s3_secret_key,

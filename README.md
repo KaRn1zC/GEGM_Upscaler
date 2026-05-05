@@ -156,18 +156,18 @@ l'image worker pour faire l'upscale GPU.
 | Image | Registry | Rôle | Tournée sur | Version actuelle |
 |---|---|---|---|:-:|
 | **`gegm-upscaler-backend`** | `ghcr.io/karn1zc/` | **Orchestrateur** — API FastAPI + SPA React + Celery | Ton Mac (dev/prod local) ou K8s GEGM | à tagguer selon le besoin |
-| **`gegm-upscaler-worker`** | `docker.io/arnaudboy/` | **Inférence GPU** — DRCT-L / HAT-L, handler RunPod | RunPod Serverless (ne tourne jamais chez nous) | **v1.9** |
+| **`gegm-upscaler-worker`** | `docker.io/arnaudboy/` | **Inférence GPU** — DRCT-L / HAT-L, handler RunPod | RunPod Serverless (ne tourne jamais chez nous) | **v2.0** |
 
 **Flow à chaque upscale** (identique dans les 3 modes dev/prod-local/prod-k8s) :
 
 ```
-User ─▶ Orchestrateur (backend image)  ─▶  API RunPod  ─▶  Worker image (v1.9)
+User ─▶ Orchestrateur (backend image)  ─▶  API RunPod  ─▶  Worker image (v2.0)
                                         (HTTPS,                  (container
                                          RUNPOD_API_KEY)          sur GPU A10G)
 ```
 
 L'endpoint RunPod `sccttzfucc5ks1` pointe en permanence sur
-`arnaudboy/gegm-upscaler-worker:v1.9`. **Tu n'y touches que si tu modifies
+`arnaudboy/gegm-upscaler-worker:v2.0`. **Tu n'y touches que si tu modifies
 `runpod-worker/handler.py`, `Dockerfile`, `requirements.txt` ou les
 poids.** Tous les changements backend/frontend qu'on fait habituellement
 vivent dans l'image backend, pas dans l'image worker.
@@ -286,12 +286,17 @@ rebuilds cette image que si tu modifies :
 - `runpod-worker/models/*.pth`
 - `runpod-worker/basicsr_shim/`
 
-#### Version actuelle déployée : `v1.9`
+#### Version actuelle déployée : `v2.0`
 
 Vérifiable côté RunPod : dashboard Serverless → endpoint `sccttzfucc5ks1`
-→ Container Image → `arnaudboy/gegm-upscaler-worker:v1.9`.
+→ Container Image → `arnaudboy/gegm-upscaler-worker:v2.0`.
 
-#### Procédure de bump (ex. v1.9 → v2.0)
+La v2.0 (commit `d3be5d8`) introduit le routage `scale_factor → modèle`
+côté backend (`backend/app/jobs/service._model_for_scale`) — le worker
+charge `drct-l_x4.pth` pour ×4 et `hat-l_x2.pth` pour ×2, sans plus se
+préoccuper de l'argument `model_name` envoyé par le client.
+
+#### Procédure de bump (ex. v2.0 → v2.1)
 
 À exécuter **uniquement** si tu as modifié un des fichiers listés
 ci-dessus. Sinon, saute cette étape.
@@ -316,21 +321,21 @@ ls -lh runpod-worker/models/
 #    mais l'intent n'est pas explicite). Sur un host Linux amd64, le flag
 #    est inutile mais ne gêne pas.
 docker build --platform linux/amd64 \
-  -t arnaudboy/gegm-upscaler-worker:v2.0 runpod-worker/
+  -t arnaudboy/gegm-upscaler-worker:v2.1 runpod-worker/
 
 # 4. Test local rapide (optionnel — vérifie que le container démarre)
 docker run --rm --platform linux/amd64 \
-  arnaudboy/gegm-upscaler-worker:v2.0 python -c "import handler; print('OK')"
+  arnaudboy/gegm-upscaler-worker:v2.1 python -c "import handler; print('OK')"
 
 # 5. Login Docker Hub (une fois, token dans ~/.docker/config.json)
 docker login
 
 # 6. Push sur Docker Hub
-docker push arnaudboy/gegm-upscaler-worker:v2.0
+docker push arnaudboy/gegm-upscaler-worker:v2.1
 
-# 7. Mettre à jour l'endpoint RunPod pour utiliser v2.0 :
+# 7. Mettre à jour l'endpoint RunPod pour utiliser le nouveau tag :
 #    Dashboard → Serverless → sccttzfucc5ks1 → Edit Endpoint
-#    → Container Image : arnaudboy/gegm-upscaler-worker:v2.0
+#    → Container Image : arnaudboy/gegm-upscaler-worker:v2.1
 #    → Save
 #    → les prochains jobs tirent le nouveau tag (pull automatique au cold-start).
 
@@ -338,22 +343,22 @@ docker push arnaudboy/gegm-upscaler-worker:v2.0
 #    prend ~1 min de plus (pull de l'image), les suivants normal.
 ```
 
-#### Commandes alternatives — préserver v1.9 si besoin de rollback
+#### Commandes alternatives — préserver le tag courant si besoin de rollback
 
 Tu peux garder plusieurs tags actifs sur Docker Hub :
 
 ```bash
-# Re-tagger l'image existante locale en v1.9 avant de rebuild en v2.0
-docker tag arnaudboy/gegm-upscaler-worker:v1.9 \
-  arnaudboy/gegm-upscaler-worker:v1.9-backup
+# Re-tagger l'image v2.0 existante avant de rebuild en v2.1
+docker tag arnaudboy/gegm-upscaler-worker:v2.0 \
+  arnaudboy/gegm-upscaler-worker:v2.0-backup
 
-# Build la v2.0 par-dessus
+# Build la v2.1 par-dessus
 docker build --platform linux/amd64 \
-  -t arnaudboy/gegm-upscaler-worker:v2.0 runpod-worker/
-docker push arnaudboy/gegm-upscaler-worker:v2.0
+  -t arnaudboy/gegm-upscaler-worker:v2.1 runpod-worker/
+docker push arnaudboy/gegm-upscaler-worker:v2.1
 
-# Si la v2.0 plante en prod, rollback immédiat :
-# Dashboard RunPod → Edit Endpoint → image: v1.9 → Save
+# Si la v2.1 plante en prod, rollback immédiat vers la v2.0 :
+# Dashboard RunPod → Edit Endpoint → image: v2.0 → Save
 ```
 
 Doc détaillée du handler + protocole I/O + specs endpoint :
@@ -787,8 +792,6 @@ helm template gegm-upscaler charts/gegm-upscaler -f values-prod.local.yaml \
 | [`GRAFANA_OAUTH.md`](./GRAFANA_OAUTH.md) | Intégration SSO Keycloak pour Grafana |
 | [`INFRA_QUESTIONS.md`](./INFRA_QUESTIONS.md) | Checklist exhaustive des livrables infra en attente |
 | [`SUIVI.md`](./SUIVI.md) | Tracking d'avancement par phase, todolist, finitions post-prod |
-| [`CLAUDE.md`](./CLAUDE.md) | Conventions de code + stack, pour contributeurs |
-| [`frontend/CLAUDE.md`](./frontend/CLAUDE.md) | Design tokens + direction esthétique frontend |
 | [`.env.example`](./.env.example) | Variables d'environnement backend documentées |
 | [`charts/gegm-upscaler/values.yaml`](./charts/gegm-upscaler/values.yaml) | Config Helm commentée en ligne |
 | [`runpod-worker/README.md`](./runpod-worker/README.md) | Build/deploy de l'image RunPod Serverless |

@@ -104,7 +104,6 @@ def test_oidc_backend_should_implement_auth_interface() -> None:
     backend = OIDCAuth(
         issuer="https://accounts.example.com",
         client_id="client-123",
-        client_secret="secret",
     )
     assert isinstance(backend, AuthBackend)
 
@@ -112,13 +111,13 @@ def test_oidc_backend_should_implement_auth_interface() -> None:
 def test_oidc_backend_should_reject_empty_issuer() -> None:
     """Instanciation sans issuer doit lever ValueError."""
     with pytest.raises(ValueError, match="issuer"):
-        OIDCAuth(issuer="", client_id="client", client_secret="secret")
+        OIDCAuth(issuer="", client_id="client")
 
 
 def test_oidc_backend_should_reject_empty_client_id() -> None:
     """Instanciation sans client_id doit lever ValueError."""
     with pytest.raises(ValueError, match="client_id"):
-        OIDCAuth(issuer="https://idp.example.com", client_id="", client_secret="secret")
+        OIDCAuth(issuer="https://idp.example.com", client_id="")
 
 
 def test_oidc_backend_should_normalize_issuer() -> None:
@@ -126,7 +125,6 @@ def test_oidc_backend_should_normalize_issuer() -> None:
     backend = OIDCAuth(
         issuer="https://accounts.example.com/",
         client_id="client-123",
-        client_secret="secret",
     )
     assert backend._issuer == "https://accounts.example.com"
 
@@ -136,7 +134,6 @@ async def test_oidc_backend_should_reject_invalid_token() -> None:
     backend = OIDCAuth(
         issuer="http://127.0.0.1:1",  # port fermé, garantit un échec réseau
         client_id="client-123",
-        client_secret="secret",
     )
     with pytest.raises(ValueError):
         await backend.get_current_user("fake-jwt-token")

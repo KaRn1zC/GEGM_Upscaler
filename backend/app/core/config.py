@@ -62,6 +62,9 @@ class Settings(BaseSettings):
     DEV_AUTH_TOKEN: SecretStr = SecretStr("dev-secret-token-change-me")
     OIDC_ISSUER: str = ""
     OIDC_CLIENT_ID: str = ""
+    # OIDC_CLIENT_SECRET n'est pas utilisé pour la validation JWT (JWKS public)
+    # ni par le flow PKCE frontend (clients publics). Réservé pour une éventuelle
+    # bascule vers introspection RFC 7662 ou flow BFF qui nécessiterait le secret.
     OIDC_CLIENT_SECRET: SecretStr = SecretStr("")
 
     # ── GPU ─────────────────────────────────────────────────────

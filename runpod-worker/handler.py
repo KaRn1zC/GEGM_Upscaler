@@ -143,8 +143,7 @@ def _resolve_weights_path(model_name: str, scale_factor: int) -> Path:
             return legacy
 
     raise FileNotFoundError(
-        f"Poids introuvables pour {model_name} x{scale_factor}. "
-        f"Attendu : {versioned}"
+        f"Poids introuvables pour {model_name} x{scale_factor}. Attendu : {versioned}"
     )
 
 

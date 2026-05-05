@@ -80,7 +80,6 @@ def get_auth() -> AuthBackend:
     return OIDCAuth(
         issuer=settings.OIDC_ISSUER,
         client_id=settings.OIDC_CLIENT_ID,
-        client_secret=settings.OIDC_CLIENT_SECRET.get_secret_value(),
     )
 
 

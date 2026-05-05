@@ -48,8 +48,6 @@ from app.jobs.progress_sync import (
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from app.jobs.models import Job
-
 
 # ──────────────────────────────────────────────────────────────
 # Helper commun : session DB async avec cleanup
@@ -719,24 +717,3 @@ def _build_output_key(input_key: str) -> str:
     if input_key.startswith("uploads/"):
         return input_key.replace("uploads/", "results/", 1)
     return f"results/{input_key}"
-
-
-async def _mark_failed(session: AsyncSession, job: Job, error_message: str) -> None:
-    """Marque un job comme FAILED en DB (utilitaire exposé pour tests legacy).
-
-    Dans le pipeline Canvas, l'échec est géré par ``on_pipeline_failure``
-    qui appelle ``_handle_pipeline_failure``. Cette fonction reste exposée
-    pour compatibilité éventuelle et comme utilitaire générique.
-
-    Args:
-        session: Session SQLAlchemy async.
-        job: Instance du modèle Job.
-        error_message: Détail de l'erreur.
-    """
-    from app.jobs.models import JobStatus
-
-    job.status = JobStatus.FAILED
-    job.error_message = error_message
-    job.completed_at = datetime.now(UTC)
-    await session.commit()
-    logger.error("Job {id} marqué FAILED : {err}", id=str(job.id), err=error_message)
