@@ -4,6 +4,7 @@ import {
   Check,
   Globe,
   Loader2,
+  LogOut,
   RefreshCw,
   Server,
   Sparkles,
@@ -17,6 +18,7 @@ import { getCurrentUser, getReadiness } from "@/lib/api";
 import type { HealthResponse, UserResponse } from "@/lib/api";
 import { SCALE_FACTORS, SCALE_TO_MODEL, type ScaleFactor } from "@/lib/constants";
 import { usePreferences } from "@/hooks/usePreferences";
+import { useAuth } from "@/hooks/useAuth";
 import { useUpdaterStore } from "@/stores/useUpdaterStore";
 import { isTauri } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
@@ -26,6 +28,7 @@ const EASE_OUT_EXPO = [0.22, 1, 0.36, 1] as const;
 export function SettingsPage() {
   const { t } = useTranslation();
   const { preferences, updatePreference, resetPreferences } = usePreferences();
+  const { logout, authMode } = useAuth();
   const updater = useUpdaterStore();
   const [user, setUser] = useState<UserResponse | null>(null);
   const [userError, setUserError] = useState<string | null>(null);
@@ -102,6 +105,26 @@ export function SettingsPage() {
           <p className="text-sm text-destructive/80">
             Impossible de récupérer l'utilisateur : {userError}
           </p>
+        )}
+
+        {authMode === "oidc" && (
+          <div className="mt-5 pt-4 border-t border-border/60">
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <p className="text-xs text-muted-foreground max-w-sm">
+                {t("settings.logoutHint")}
+              </p>
+              <button
+                onClick={() => logout({ redirectToIdp: true })}
+                className={cn(
+                  "flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors",
+                  "border-border text-muted-foreground hover:text-destructive hover:border-destructive/50",
+                )}
+              >
+                <LogOut className="w-3.5 h-3.5" strokeWidth={2} />
+                {t("settings.logout")}
+              </button>
+            </div>
+          </div>
         )}
       </Section>
 

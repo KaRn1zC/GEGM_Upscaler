@@ -27,7 +27,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' http://localhost:8000 ws://localhost:8000; img-src 'self' data: blob: http://localhost:8000; style-src 'self' 'unsafe-inline'; script-src 'self'"
+      "csp": "default-src 'self'; connect-src 'self' http://localhost:8000 ws://localhost:8000 https://upscaler.gegmgroup.com https://*.gegmgroup.com https://errors.vixns.net https://github.com https://*.githubusercontent.com https://api.github.com; img-src 'self' data: blob: http://localhost:8000 https://upscaler.gegmgroup.com https://*.gegmgroup.com https://*.r2.cloudflarestorage.com https://*.io.cloud.ovh.net; style-src 'self' 'unsafe-inline'; script-src 'self'"
     },
     "macOSPrivateApi": true
   },

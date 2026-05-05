@@ -23,13 +23,31 @@ import { UpdateBanner } from "@/components/UpdateBanner";
 import { useAuth } from "@/hooks/useAuth";
 import { useGlobalShortcuts } from "@/hooks/useGlobalShortcuts";
 import { useJobNotifications } from "@/hooks/useJobNotifications";
-import { AuthCallbackPage } from "@/pages/AuthCallbackPage";
-import { BatchPage } from "@/pages/BatchPage";
-import { GalleryPage } from "@/pages/GalleryPage";
-import { HistoryPage } from "@/pages/HistoryPage";
-import { LoginPage } from "@/pages/LoginPage";
-import { SettingsPage } from "@/pages/SettingsPage";
-import { UpscalePage } from "@/pages/UpscalePage";
+
+// Pages lazy-loadées — chacune devient son propre chunk Vite. Réduit le
+// bundle initial à la page courante uniquement (la nav précharge à la
+// demande via le router).
+const UpscalePage = lazy(() =>
+  import("@/pages/UpscalePage").then((m) => ({ default: m.UpscalePage })),
+);
+const BatchPage = lazy(() =>
+  import("@/pages/BatchPage").then((m) => ({ default: m.BatchPage })),
+);
+const GalleryPage = lazy(() =>
+  import("@/pages/GalleryPage").then((m) => ({ default: m.GalleryPage })),
+);
+const HistoryPage = lazy(() =>
+  import("@/pages/HistoryPage").then((m) => ({ default: m.HistoryPage })),
+);
+const SettingsPage = lazy(() =>
+  import("@/pages/SettingsPage").then((m) => ({ default: m.SettingsPage })),
+);
+const LoginPage = lazy(() =>
+  import("@/pages/LoginPage").then((m) => ({ default: m.LoginPage })),
+);
+const AuthCallbackPage = lazy(() =>
+  import("@/pages/AuthCallbackPage").then((m) => ({ default: m.AuthCallbackPage })),
+);
 
 // Code-split — la command palette (+ cmdk + radix-dialog) est chargée à
 // la demande dans son propre chunk, pas dans le bundle initial.
@@ -196,14 +214,16 @@ function AuthenticatedApp() {
             transition={{ duration: 0.32, ease: EASE_OUT_EXPO }}
             className="h-full"
           >
-            <Routes location={location}>
-              <Route path="/upscale" element={<UpscalePage />} />
-              <Route path="/batch" element={<BatchPage />} />
-              <Route path="/gallery" element={<GalleryPage />} />
-              <Route path="/history" element={<HistoryPage />} />
-              <Route path="/settings" element={<SettingsPage />} />
-              <Route path="*" element={<Navigate to="/upscale" replace />} />
-            </Routes>
+            <Suspense fallback={null}>
+              <Routes location={location}>
+                <Route path="/upscale" element={<UpscalePage />} />
+                <Route path="/batch" element={<BatchPage />} />
+                <Route path="/gallery" element={<GalleryPage />} />
+                <Route path="/history" element={<HistoryPage />} />
+                <Route path="/settings" element={<SettingsPage />} />
+                <Route path="*" element={<Navigate to="/upscale" replace />} />
+              </Routes>
+            </Suspense>
           </m.div>
         </AnimatePresence>
       </main>
@@ -219,20 +239,22 @@ export default function App() {
   return (
     <LazyMotion features={domMax} strict>
       <BrowserRouter>
-        <Routes>
-          {/* Routes publiques (hors RequireAuth) */}
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/auth/callback" element={<AuthCallbackPage />} />
-          {/* Reste de l'app protégé par auth */}
-          <Route
-            path="/*"
-            element={
-              <RequireAuth>
-                <AuthenticatedApp />
-              </RequireAuth>
-            }
-          />
-        </Routes>
+        <Suspense fallback={null}>
+          <Routes>
+            {/* Routes publiques (hors RequireAuth) */}
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/auth/callback" element={<AuthCallbackPage />} />
+            {/* Reste de l'app protégé par auth */}
+            <Route
+              path="/*"
+              element={
+                <RequireAuth>
+                  <AuthenticatedApp />
+                </RequireAuth>
+              }
+            />
+          </Routes>
+        </Suspense>
       </BrowserRouter>
     </LazyMotion>
   );

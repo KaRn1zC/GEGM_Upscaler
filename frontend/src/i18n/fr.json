@@ -42,7 +42,9 @@
   "settings": {
     "language": "Langue",
     "languageFr": "Français",
-    "languageEn": "English"
+    "languageEn": "English",
+    "logout": "Se déconnecter",
+    "logoutHint": "Termine ta session actuelle et reviens à l'écran de connexion."
   },
   "common": {
     "loading": "Chargement…"

@@ -13,8 +13,14 @@
     "dialog:allow-open",
     "dialog:allow-save",
     "fs:default",
-    "fs:allow-read-file",
-    "fs:allow-write-file",
+    {
+      "identifier": "fs:allow-read-file",
+      "allow": [{ "path": "$HOME/**" }]
+    },
+    {
+      "identifier": "fs:allow-write-file",
+      "allow": [{ "path": "$HOME/**" }]
+    },
     "shell:allow-open",
     "notification:default",
     "notification:allow-notify",

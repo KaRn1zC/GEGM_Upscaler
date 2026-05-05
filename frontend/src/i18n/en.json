@@ -42,7 +42,9 @@
   "settings": {
     "language": "Language",
     "languageFr": "Français",
-    "languageEn": "English"
+    "languageEn": "English",
+    "logout": "Sign out",
+    "logoutHint": "End your current session and go back to the sign-in screen."
   },
   "common": {
     "loading": "Loading…"

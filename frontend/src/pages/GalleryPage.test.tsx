@@ -60,9 +60,12 @@ afterEach(() => {
 });
 
 describe("GalleryPage", () => {
-  it("should render the title", () => {
+  it("should render the title", async () => {
     render(<GalleryPage />);
     expect(screen.getByRole("heading", { name: "Galerie" })).toBeInTheDocument();
+    // Flush la promesse `fetchJobs` déclenchée par le useEffect pour éviter
+    // un warning React "not wrapped in act" entre les tests.
+    await act(async () => {});
   });
 
   it("should show empty state when no completed jobs", async () => {
@@ -74,12 +77,15 @@ describe("GalleryPage", () => {
     ).toBeInTheDocument();
   });
 
-  it("should show the loading spinner while fetching", () => {
-    // On rend la page juste après setState isLoading=true, sans laisser le
-    // fetch asynchrone se résoudre — le spinner doit être visible.
+  it("should show the loading spinner while fetching", async () => {
+    // On simule une fetch qui ne résout jamais pour figer isLoading=true sans
+    // que la transition vers isLoading=false ne déclenche un warning act().
+    vi.mocked(api.listJobs).mockReturnValue(new Promise(() => {}));
     useJobStore.setState({ isLoading: true });
     render(<GalleryPage />);
     expect(screen.queryByText(/Aucun résultat disponible/i)).not.toBeInTheDocument();
+    // Flush les microtasks pending pour la propreté inter-tests.
+    await act(async () => {});
   });
 
   it("should filter to only completed jobs for the gallery grid", async () => {
