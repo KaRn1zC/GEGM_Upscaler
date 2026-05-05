@@ -318,6 +318,25 @@ cd frontend && npm run dev
 # Vite tourne sur :5173 et proxy les /api/* vers :8000
 ```
 
+**Terminal 5 — (Optionnel) App desktop Tauri**
+
+Deux variantes selon ce que tu veux tester :
+
+```bash
+# Option A — Tauri dev (hot-reload, le plus rapide)
+cd frontend && npm run tauri:dev
+# Vite proxy /api → :8000, fenêtre native Tauri sur le SPA dev
+
+# Option B — bundle Tauri prod local pointant sur le compose
+# (produit un .dmg/.msi/.AppImage figé sur ton backend local — utile
+#  pour valider l'expérience exacte du bundle final avant un tag CI)
+cd frontend
+VITE_API_BASE=http://localhost:8000/api \
+VITE_AUTH_MODE=dev \
+npm run tauri:build
+# Artefacts : frontend/src-tauri/target/release/bundle/{dmg,msi,appimage}/
+```
+
 ### Accès aux services
 
 | Service | URL | Credentials |
