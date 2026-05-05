@@ -81,6 +81,8 @@ frontend/CLAUDE.md
 
 # Docs
 INFRA_QUESTIONS.md
+INFRA_LIVRABLES.md
+SENTRY_SETUP.md
 # Archis DRCT/HAT clonees pour la conversion Core ML (H.1)
 vendor/
 # Modeles Core ML generes (lourds, gitignores)
