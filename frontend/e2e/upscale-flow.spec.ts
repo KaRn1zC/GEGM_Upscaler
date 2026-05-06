@@ -22,11 +22,14 @@ test.describe("Flow upscale + cancel + compare", () => {
     // La DropZone bascule en mode preview — le nom du fichier s'affiche.
     await expect(page.getByText("test.png")).toBeVisible();
 
-    // Le bouton Lancer apparaît AVEC les settings courants (default ×4 + drct-l).
+    // Le bouton Lancer apparaît AVEC les settings courants (default ×4 + DRCT-L).
+    // L'UI affiche le label en majuscules (`DRCT-L`) via `SCALE_TO_MODEL.label`,
+    // mais on garde le test case-insensitive pour ne pas casser sur un
+    // futur changement de casse cosmétique.
     const launchBtn = page.getByRole("button", { name: /Lancer l'upscale/ });
     await expect(launchBtn).toBeVisible();
     await expect(launchBtn).toContainText(/×4/);
-    await expect(launchBtn).toContainText(/drct-l/);
+    await expect(launchBtn).toContainText(/drct-l/i);
 
     // Aucune requête d'upload ou de création de job ne doit avoir été émise.
   });

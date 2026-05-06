@@ -89,6 +89,17 @@ export const test = base.extend<{ apiMocks: ApiMocks }>({
       jobs: [],
       tinyPng: () => Buffer.from(TINY_PNG_B64, "base64"),
       install: async (page: Page) => {
+        // Force la langue FR avant le premier mount de l'app — sinon
+        // i18next-browser-languagedetector lit `navigator.language` qui
+        // vaut `en-US` sur le runner CI Linux, et l'app bascule en
+        // anglais. Les tests qui matchent "Galerie", "Historique",
+        // "Paramètres" tomberaient alors sur "Gallery", "History",
+        // "Settings". On préempte avec la valeur dans localStorage que
+        // l'app lit en priorité (cf. lib/i18n.ts:31 detection.order).
+        await page.addInitScript(() => {
+          window.localStorage.setItem("i18nextLng", "fr");
+        });
+
         // GET /api/jobs — liste des jobs
         await page.route(/\/api\/jobs(\?.*)?$/, async (route: Route) => {
           if (route.request().method() === "GET") {
