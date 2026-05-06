@@ -24,27 +24,42 @@
   inférence GPU cloud via RunPod Serverless, déploiement Kubernetes.</sub>
 </p>
 
-<sub><em>Code prod-ready — déploiement conditionné à la fourniture des valeurs infra listées dans <a href="./INFRA_QUESTIONS.md"><code>INFRA_QUESTIONS.md</code></a> § 0.</em></sub>
-
 </div>
 
 ---
 
 ## Table des matières
 
-1. [Aperçu & fonctionnalités](#1-aperçu--fonctionnalités)
-2. [Stack technique](#2-stack-technique)
-3. [Architecture en bref](#3-architecture-en-bref)
-4. [Prérequis](#4-prérequis)
-5. [Installation initiale](#5-installation-initiale)
-6. [Images Docker du projet](#6-images-docker-du-projet)
-7. [Mode Dev local — dev itératif](#7-mode-dev-local--dev-itératif)
-8. [Mode Prod local — simulation prod sur la machine](#8-mode-prod-local--simulation-prod-sur-la-machine)
-9. [Mode Prod routinière — cluster K8s GEGM](#9-mode-prod-routinière--cluster-k8s-gegm)
-10. [Build desktop Tauri](#10-build-desktop-tauri)
-11. [Qualité du code & tests](#11-qualité-du-code--tests)
-12. [Documentation détaillée](#12-documentation-détaillée)
-13. [Licence](#13-licence)
+- [Table des matières](#table-des-matières)
+- [1. Aperçu \& fonctionnalités](#1-aperçu--fonctionnalités)
+  - [Features livrées](#features-livrées)
+- [2. Stack technique](#2-stack-technique)
+- [3. Architecture en bref](#3-architecture-en-bref)
+- [4. Prérequis](#4-prérequis)
+- [5. Installation initiale](#5-installation-initiale)
+- [6. Images Docker du projet](#6-images-docker-du-projet)
+  - [Build \& release de l'image backend](#build--release-de-limage-backend)
+  - [Build \& release de l'image worker RunPod](#build--release-de-limage-worker-runpod)
+- [7. Mode Dev local — dev itératif](#7-mode-dev-local--dev-itératif)
+  - [Commandes par terminal](#commandes-par-terminal)
+  - [Accès aux services](#accès-aux-services)
+  - [Pourquoi ces variables inline ?](#pourquoi-ces-variables-inline-)
+  - [Arrêt](#arrêt)
+  - [Lancer le desktop Tauri en mode dev](#lancer-le-desktop-tauri-en-mode-dev)
+- [8. Mode Prod local — simulation prod sur la machine](#8-mode-prod-local--simulation-prod-sur-la-machine)
+  - [Commandes par terminal](#commandes-par-terminal-1)
+  - [Accès aux services](#accès-aux-services-1)
+  - [Arrêt](#arrêt-1)
+  - [Différences avec le vrai mode prod](#différences-avec-le-vrai-mode-prod)
+- [9. Mode Prod routinière — cluster K8s GEGM](#9-mode-prod-routinière--cluster-k8s-gegm)
+- [10. Build desktop Tauri](#10-build-desktop-tauri)
+- [11. Qualité du code \& tests](#11-qualité-du-code--tests)
+  - [Backend (Python)](#backend-python)
+  - [Frontend (TypeScript + React)](#frontend-typescript--react)
+  - [Helm chart](#helm-chart)
+  - [CI GitHub Actions](#ci-github-actions)
+- [12. Documentation détaillée](#12-documentation-détaillée)
+- [13. Licence](#13-licence)
 
 ---
 
