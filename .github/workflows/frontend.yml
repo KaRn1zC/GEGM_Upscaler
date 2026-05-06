@@ -19,6 +19,12 @@ concurrency:
   group: frontend-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # Force les actions JS (checkout, setup-node, cache, upload-artifact)
+  # à tourner sur Node.js 24 au lieu de Node.js 20 déprécié. GitHub
+  # bascule par défaut le 2026-06-02, retire Node.js 20 le 2026-09-16.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   lint-test-build:
     name: Type-check + Lint + Tests + Build
