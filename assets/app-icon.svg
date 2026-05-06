@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!--
+    GEGM Upscaler — App icon "Pixel Ascend"
+    ============================================
+    Concept : un escalier de carrés montant qui évoque la super-résolution
+    (un pixel low-res qui se subdivise et grimpe en qualité).
+
+    Palette OLED Luxury × GEGM :
+      #000000  fond noir absolu
+      #061A84  bleu marine — glow ambient
+      #1436DE  bleu électrique — accent dominant
+      #FFFFFF  blanc pur — pic de luminosité
+
+    Marges : ~12 % (124 / 1024) pour préserver la forme sous le mask
+    arrondi macOS Big Sur+ et éviter la troncation.
+  -->
+
+  <defs>
+    <!-- Glow ambient bleu marine derrière l'escalier -->
+    <radialGradient id="ambientGlow" cx="50%" cy="58%" r="55%">
+      <stop offset="0%" stop-color="#1436DE" stop-opacity="0.35"/>
+      <stop offset="45%" stop-color="#061A84" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Dégradé bleu → blanc qui suit la montée des marches -->
+    <linearGradient id="ascendGradient" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#1436DE"/>
+      <stop offset="55%" stop-color="#4F6FFF"/>
+      <stop offset="100%" stop-color="#FFFFFF"/>
+    </linearGradient>
+
+    <!-- Glow doux autour de chaque carré pour un rendu OLED premium -->
+    <filter id="softGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Glow plus prononcé pour le carré sommet (pic de luminosité) -->
+    <filter id="topGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="14" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Fond noir absolu -->
+  <rect width="1024" height="1024" fill="#000000"/>
+
+  <!-- Glow ambient radial -->
+  <rect width="1024" height="1024" fill="url(#ambientGlow)"/>
+
+  <!--
+    Escalier de 4 marches montant en diagonale.
+    Chaque marche : carré 168×168, espacement 24, coins arrondis r=18.
+    Position calculée pour centrer la composition dans le canvas avec
+    des marges de ~124 px (12 %).
+
+    Disposition :
+      [ ][ ][ ][4]   ← marche 4 (haut-droite, blanche, glow fort)
+      [ ][ ][3][ ]   ← marche 3 (bleu pâle)
+      [ ][2][ ][ ]   ← marche 2 (bleu)
+      [1][ ][ ][ ]   ← marche 1 (bleu profond, en bas-gauche)
+
+    L'œil suit naturellement la diagonale ascendante = lecture "upscale".
+  -->
+
+  <g filter="url(#softGlow)">
+    <!-- Marche 1 — bleu profond (origine basse) -->
+    <rect x="184" y="640" width="168" height="168" rx="18" fill="#1436DE" opacity="0.85"/>
+
+    <!-- Marche 2 — bleu électrique -->
+    <rect x="376" y="448" width="168" height="168" rx="18" fill="#1436DE"/>
+
+    <!-- Marche 3 — bleu/blanc transition -->
+    <rect x="568" y="256" width="168" height="168" rx="18" fill="url(#ascendGradient)"/>
+  </g>
+
+  <!-- Marche 4 — blanc pur, pic de luminosité avec glow renforcé -->
+  <g filter="url(#topGlow)">
+    <rect x="760" y="64" width="168" height="168" rx="18" fill="#FFFFFF"/>
+  </g>
+
+  <!--
+    Petite pointe de lumière au coin haut-droit du dernier carré
+    pour signer l'identité "premium / sharp accent" GEGM.
+  -->
+  <circle cx="912" cy="80" r="6" fill="#FFFFFF" opacity="0.9"/>
+</svg>
