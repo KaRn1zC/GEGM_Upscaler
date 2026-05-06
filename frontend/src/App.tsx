@@ -82,7 +82,10 @@ function Sidebar() {
         <h1 className="font-display font-light text-3xl text-foreground leading-none tracking-tight">
           GEGM
         </h1>
-        <p className="mt-1.5 text-[9px] font-sans uppercase tracking-[0.3em] text-muted-foreground">
+        <p
+          className="mt-1.5 text-[9px] font-sans uppercase tracking-[0.3em] text-muted-foreground"
+          style={{ textIndent: "-0.15em" }}
+        >
           Upscaler
         </p>
       </m.div>

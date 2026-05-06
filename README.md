@@ -1,12 +1,32 @@
-# GEGM Upscaler
+<div align="center">
 
-> Outil interne GEGM d'upscaling d'images par super-résolution IA.
-> App web (FastAPI + React) et desktop (Tauri — macOS, Windows, Linux),
-> inférence GPU cloud via RunPod Serverless, déploiement Kubernetes.
+<img src="./assets/banner.png" alt="GEGM Upscaler — AI Super-Resolution" width="100%"/>
 
-**Statut** : code prod-ready (340 tests passants, 100 % features livrées).
-Déploiement en prod conditionné à la fourniture des 26 valeurs infra
-listées dans [`INFRA_QUESTIONS.md`](./INFRA_QUESTIONS.md) § 0.
+<br/>
+
+<p>
+  <img src="https://img.shields.io/badge/status-prod--ready-1436DE?style=for-the-badge&labelColor=000000" alt="Status"/>
+  <img src="https://img.shields.io/badge/tests-354_passing-22c55e?style=for-the-badge&labelColor=000000" alt="Tests"/>
+  <img src="https://img.shields.io/badge/coverage-60%25_BE_·_53%25_FE-4F6FFF?style=for-the-badge&labelColor=000000" alt="Coverage"/>
+</p>
+
+<p>
+  <img src="https://img.shields.io/badge/python-3.12+-3776AB?style=flat-square&logo=python&logoColor=white&labelColor=000000" alt="Python"/>
+  <img src="https://img.shields.io/badge/FastAPI-0.135-009688?style=flat-square&logo=fastapi&logoColor=white&labelColor=000000" alt="FastAPI"/>
+  <img src="https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=white&labelColor=000000" alt="React"/>
+  <img src="https://img.shields.io/badge/Tauri-2.0-FFC131?style=flat-square&logo=tauri&logoColor=white&labelColor=000000" alt="Tauri"/>
+  <img src="https://img.shields.io/badge/Kubernetes-Helm_3-326CE5?style=flat-square&logo=kubernetes&logoColor=white&labelColor=000000" alt="K8s"/>
+</p>
+
+<p align="center">
+  <strong>Outil interne GEGM d'upscaling d'images par super-résolution IA.</strong><br/>
+  <sub>App web (FastAPI + React) et desktop (Tauri — macOS, Windows, Linux),<br/>
+  inférence GPU cloud via RunPod Serverless, déploiement Kubernetes.</sub>
+</p>
+
+<sub><em>Code prod-ready — déploiement conditionné à la fourniture des valeurs infra listées dans <a href="./INFRA_QUESTIONS.md"><code>INFRA_QUESTIONS.md</code></a> § 0.</em></sub>
+
+</div>
 
 ---
 
