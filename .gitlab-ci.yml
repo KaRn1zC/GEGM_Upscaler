@@ -1,19 +1,23 @@
-# .gitlab-ci.yml — CI GEGM Upscaler (lint / test / build)
+# .gitlab-ci.yml — CI GEGM Upscaler
 #
-# Pipeline qualité, équivalent GitLab des anciens workflows GitHub Actions
-# backend.yml + frontend.yml + e2e.yml + helm-lint.yml. Les jobs de build
-# d'images (backend, worker) et la release desktop Tauri sont ajoutés dans
-# les étapes suivantes de la migration (cf. MIGRATION_GEGM.md § 2-4).
+# Pipeline GitLab, équivalent des anciens workflows GitHub Actions.
+#   - stage lint-test : backend (ruff/mypy/pytest), frontend (tsc/eslint/
+#     vitest/build), E2E Playwright, chart Helm.
+#   - stage build     : image backend → registry GitLab (sur tag v*.*.*).
+# À venir (cf. MIGRATION_GEGM.md § 3-4) : image worker + release desktop Tauri.
 #
-# Déclenchement (workflow:rules) : merge requests, branche main, run manuel.
+# Déclenchement (workflow:rules) : merge requests, branche main, tags v*.*.*,
+# run manuel.
 
 stages:
   - lint-test
+  - build
 
 workflow:
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_COMMIT_TAG'
     - if: '$CI_PIPELINE_SOURCE == "web"'
     - when: never
 
@@ -165,3 +169,53 @@ helm:
       python3 -c "import yaml
       for p in ('rendered-prod.yaml', 'rendered-staging.yaml'):
           print(p + ':', len(list(yaml.safe_load_all(open(p)))), 'documents YAML valides')"
+
+# ════════════════════════ Build image backend ══════════════════════════
+# Build + push de l'image backend sur le registry GitLab GEGM, sur tag
+# v*.*.*. Kaniko (pas de mode privilégié requis — compatible runners
+# Kubernetes). Auth via les variables built-in CI_REGISTRY*. Les build-args
+# VITE_* retombent sur des valeurs par défaut tant que les variables CI
+# (cf. tâche #53) ne sont pas définies — l'image reste alors en mode dev.
+#
+# Prérequis : Container Registry activé sur le projet (Settings → General).
+backend-image:
+  stage: build
+  image:
+    name: gcr.io/kaniko-project/executor:debug
+    entrypoint: [""]
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
+  before_script:
+    - mkdir -p /kaniko/.docker
+    - |
+      echo "{\"auths\":{\"${CI_REGISTRY}\":{\"auth\":\"$(printf "%s:%s" "${CI_REGISTRY_USER}" "${CI_REGISTRY_PASSWORD}" | base64 | tr -d '\n')\"}}}" > /kaniko/.docker/config.json
+  script:
+    - >-
+      /kaniko/executor
+      --context "${CI_PROJECT_DIR}"
+      --dockerfile "${CI_PROJECT_DIR}/backend/Dockerfile"
+      --destination "${CI_REGISTRY_IMAGE}:${CI_COMMIT_TAG}"
+      --destination "${CI_REGISTRY_IMAGE}:latest"
+      --build-arg "VITE_AUTH_MODE=${VITE_AUTH_MODE_PROD:-dev}"
+      --build-arg "VITE_API_BASE=${VITE_API_BASE_PROD:-}"
+      --build-arg "VITE_OIDC_ISSUER=${VITE_OIDC_ISSUER_PROD:-}"
+      --build-arg "VITE_OIDC_CLIENT_ID=${VITE_OIDC_CLIENT_ID_PROD:-gegm-upscaler}"
+      --build-arg "VITE_SENTRY_DSN=${FRONTEND_SENTRY_DSN:-}"
+      --build-arg "VITE_SENTRY_ENVIRONMENT=${SENTRY_ENVIRONMENT:-production}"
+      --build-arg "VITE_APP_VERSION=${CI_COMMIT_TAG}"
+
+# Scan de vulnérabilités Trivy sur l'image poussée — échec si CVE
+# CRITICAL/HIGH corrigeable (on préfère bloquer une release vulnérable).
+backend-image-scan:
+  stage: build
+  needs: ["backend-image"]
+  image:
+    name: aquasec/trivy:latest
+    entrypoint: [""]
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
+  variables:
+    TRIVY_USERNAME: "${CI_REGISTRY_USER}"
+    TRIVY_PASSWORD: "${CI_REGISTRY_PASSWORD}"
+  script:
+    - trivy image --exit-code 1 --severity CRITICAL,HIGH --ignore-unfixed "${CI_REGISTRY_IMAGE}:${CI_COMMIT_TAG}"
