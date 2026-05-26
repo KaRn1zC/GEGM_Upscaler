@@ -83,6 +83,7 @@ frontend/CLAUDE.md
 INFRA_QUESTIONS.md
 INFRA_LIVRABLES.md
 SENTRY_SETUP.md
+MIGRATION_GEGM.md
 # Archis DRCT/HAT clonees pour la conversion Core ML (H.1)
 vendor/
 # Modeles Core ML generes (lourds, gitignores)
