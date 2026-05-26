@@ -57,7 +57,7 @@
   - [Backend (Python)](#backend-python)
   - [Frontend (TypeScript + React)](#frontend-typescript--react)
   - [Helm chart](#helm-chart)
-  - [CI GitHub Actions](#ci-github-actions)
+  - [CI GitLab](#ci-gitlab)
 - [12. Documentation détaillée](#12-documentation-détaillée)
 - [13. Licence](#13-licence)
 
@@ -107,7 +107,7 @@ intégré).
 | Modèles SR | DRCT-L (`ming053l/DRCT`), fallback HAT-L |
 | Déploiement | **Kubernetes** + **Helm 3** chart, Envoy Gateway, External Secrets Operator |
 | Monitoring | **OpenTelemetry** + **VictoriaMetrics** (ou Prometheus), **Grafana**, **Loki**, **Sentry** self-hosted |
-| CI/CD | **GitHub Actions** (7 workflows : backend, frontend, docker, release-tauri, helm-lint, e2e, runpod-worker) |
+| CI/CD | **GitLab CI** (`.gitlab-ci.yml` — stages `lint-test` : backend, frontend, e2e, helm ; stage `build` : image backend Kaniko + scan Trivy sur tag `v*.*.*`) |
 
 ---
 
@@ -426,13 +426,12 @@ secrets Vault + 8 GitHub vars + provisionnements Keycloak/Sentry/DNS) :
 
 ## 10. Build desktop Tauri
 
-Les utilisateurs téléchargent un bundle natif depuis la page **GitHub
-Releases** du dépôt. Quatre plateformes (macOS aarch64 + macOS x86_64 +
-Windows x86_64 + Linux x86_64) sont produites automatiquement à chaque
-tag `v*.*.*` par `.github/workflows/release-tauri.yml`.
+Les utilisateurs téléchargent un bundle natif (`.dmg` / `.msi` / `.AppImage`).
+La pipeline de release desktop multi-plateforme est **en cours de migration**
+(runners macOS/Windows côté GitLab GEGM en cours d'investigation — TBD).
 
-**Procédure de release complète** (cheat-sheet bump + tag + publish,
-build local sans CI, rollback, plan de migration S3 OVH) :
+**Procédure de release complète** (bump de version, build local, plan de
+migration S3 OVH) :
 **[`DISTRIBUTION.md`](./DISTRIBUTION.md)**.
 
 **Mode dev rapide** :
@@ -483,19 +482,21 @@ helm template gegm-upscaler charts/gegm-upscaler -f values-prod.local.yaml \
   | kubectl --dry-run=server apply -f -
 ```
 
-### CI GitHub Actions
+### CI GitLab
 
-7 workflows s'exécutent automatiquement :
+La CI tourne via `.gitlab-ci.yml` sur le dépôt canonique
+`gitlab.kangourouge.com/gegm-creative/ai/gegm-upscaler`.
 
-| Workflow | Trigger | Contenu |
-|---|---|---|
-| `backend.yml` | PR touchant `backend/**` | ruff + mypy + pytest avec services Postgres + Redis + alembic |
-| `frontend.yml` | PR touchant `frontend/**` | ESLint + tsc + vitest |
-| `e2e.yml` | PR touchant `frontend/**` | Playwright avec Vite webServer |
-| `helm-lint.yml` | PR touchant `charts/**` | `helm lint` + `helm template` |
-| `docker.yml` | Tag `v*.*.*` | Build multi-arch + Trivy scan + push GHCR + mirror GitLab + chart OCI push |
-| `release-tauri.yml` | Tag `v*.*.*` | Build desktop macOS + Linux + Windows + signature updater + GitHub Release draft |
-| `runpod-worker.yml` | PR touchant `runpod-worker/**` | Build image RunPod worker |
+| Stage | Job | Trigger | Contenu |
+|---|---|---|---|
+| `lint-test` | `backend-lint-test` | tout push / MR | ruff + ruff format + mypy + alembic upgrade + pytest (services Postgres + Redis) |
+| `lint-test` | `frontend-lint-test` | tout push / MR | tsc + eslint + vitest + build Vite |
+| `lint-test` | `e2e` | tout push / MR | 14 tests Playwright |
+| `lint-test` | `helm-lint` | tout push / MR | `helm lint` + `helm template` |
+| `build` | `backend-image` | tag `v*.*.*` | Build Kaniko → `registry.kangourouge.com/gegm-creative/ai/gegm-upscaler:<tag>` + scan Trivy |
+
+Le dépôt GitHub `KaRn1zC/GEGM_Upscaler` est un **miroir vitrine** — ne pas
+l'utiliser comme source de vérité pour les procédures CI/CD.
 
 ---
 
