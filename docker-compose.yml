@@ -5,7 +5,7 @@
 #   docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
 #
 # En production, surcharger via un docker-compose.prod.yml qui utilise
-# `image: ghcr.io/karn1zc/gegm-upscaler-backend:${RELEASE_TAG}` (pas de build:)
+# `image: registry.kangourouge.com/gegm-creative/ai/gegm-upscaler:${RELEASE_TAG}` (pas de build:)
 # et augmente les limites mémoire/CPU selon les specs du serveur.
 
 services:

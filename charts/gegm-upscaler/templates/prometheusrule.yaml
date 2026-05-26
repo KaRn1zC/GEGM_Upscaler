@@ -42,7 +42,7 @@ spec:
               - Les logs du worker Celery (erreurs RunPod, timeouts, OOM)
               - L'état de l'endpoint RunPod ({{ .Values.config.RUNPOD_ENDPOINT_ID }})
               - Les quotas/credentials S3
-            runbook_url: "https://github.com/KaRn1zC/GEGM_Upscaler/blob/main/SUIVI.md"
+            runbook_url: "https://gitlab.kangourouge.com/gegm-creative/ai/gegm-upscaler/-/blob/main/SUIVI.md"
 
         - alert: WorkerStalled
           # Aucun job traité depuis 10 min alors qu'il y en avait en file.
