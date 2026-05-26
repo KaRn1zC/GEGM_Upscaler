@@ -20,8 +20,9 @@
 
 <p align="center">
   <strong>Outil interne GEGM d'upscaling d'images par super-résolution IA.</strong><br/>
-  <sub>App web (FastAPI + React) et desktop (Tauri — macOS, Windows, Linux),<br/>
-  inférence GPU cloud via RunPod Serverless, déploiement Kubernetes.</sub>
+  <sub>Livré comme <strong>application web</strong> (<code>https://upscaler.gegmgroup.com</code>),<br/>
+  inférence GPU cloud via RunPod Serverless, déploiement Kubernetes.<br/>
+  Shell desktop Tauri présent dans le code (drag-drop natif, notifications, auto-updater) — distribution optionnelle/différée.</sub>
 </p>
 
 </div>
@@ -71,9 +72,11 @@ super-résolution IA (DRCT-L / HAT-L). En v1, l'inférence tourne
 Core ML sur Apple Silicon est différée v2 (bloquée upstream sur
 `coremltools` 10+, cf. [`SUIVI.md`](./SUIVI.md) § 11.4 A7).
 
-Disponible en **web** (`https://upscaler.gegmgroup.com` après déploiement)
-et en **desktop natif** (Tauri macOS / Windows / Linux, auto-updater
-intégré).
+Disponible en **web app** (`https://upscaler.gegmgroup.com` après déploiement) —
+c'est le mode de distribution principal et actif. Le code inclut un shell
+desktop Tauri fonctionnel (auto-updater ed25519, notifications natives,
+drag-drop Finder) ; la distribution desktop est **différée et optionnelle**
+(macOS uniquement si poursuivie — voir § 10).
 
 ### Features livrées
 
@@ -115,8 +118,8 @@ intégré).
 
 ```
 Utilisateurs GEGM
-  ├─▶ Desktop .dmg / .msi / .AppImage (Tauri)
-  └─▶ Web https://upscaler.gegmgroup.com
+  └─▶ Web https://upscaler.gegmgroup.com  (distribution principale)
+  [optionnel/différé] ──▶ Desktop .dmg macOS (Tauri) — si runner GitLab macOS provisionné
               │
               ▼
         Envoy Gateway (HTTPRoute + TLS cert-manager)
@@ -144,14 +147,14 @@ sans modifier le code. Détails complets dans
 |---|:-:|---|
 | **Python** (via [uv](https://github.com/astral-sh/uv)) | 3.12 | Backend + worker |
 | **Node.js** | 20 | Frontend + Tauri CLI |
-| **Rust** (via [rustup](https://rustup.rs/)) | 1.77 | Shell Tauri desktop |
+| **Rust** (via [rustup](https://rustup.rs/)) | 1.77 | Shell Tauri (dev local — distribution desktop différée/optionnelle) |
 | **Docker Desktop** | 25+ | Stack locale (Postgres/Redis/monitoring) |
 | **kubectl** | 1.29+ | Déploiement K8s prod (section 9) |
 | **helm** | 3.16+ | Chart Helm prod (section 9) |
-| **gh CLI** | 2.40+ | Releases desktop (section 10) |
 
-Sur macOS, deps système Tauri installées automatiquement. Sur Linux,
-voir § 10 pour la liste de paquets apt-get requis.
+Sur macOS, deps système Tauri installées automatiquement. Rust n'est requis
+que pour le développement local Tauri (`npm run tauri:dev`) — pas nécessaire
+pour le seul déploiement web.
 
 ---
 
@@ -363,13 +366,13 @@ cd frontend && npm run tauri:dev
 # Vite proxy /api → :8000, fenêtre native Tauri sur le SPA dev
 
 # Option B — bundle Tauri prod local pointant sur le compose
-# (produit un .dmg/.msi/.AppImage figé sur ton backend local — utile
-#  pour valider l'expérience exacte du bundle final avant un tag CI)
+# (produit un .dmg figé sur ton backend local — utile pour valider
+#  l'expérience exacte du bundle final avant un tag CI)
 cd frontend
 VITE_API_BASE=http://localhost:8000/api \
 VITE_AUTH_MODE=dev \
 npm run tauri:build
-# Artefacts : frontend/src-tauri/target/release/bundle/{dmg,msi,appimage}/
+# Artefacts : frontend/src-tauri/target/release/bundle/{dmg,macos}/
 ```
 
 ### Accès aux services
@@ -426,15 +429,20 @@ secrets Vault + 8 GitHub vars + provisionnements Keycloak/Sentry/DNS) :
 
 ## 10. Build desktop Tauri
 
-Les utilisateurs téléchargent un bundle natif (`.dmg` / `.msi` / `.AppImage`).
-La pipeline de release desktop multi-plateforme est **en cours de migration**
-(runners macOS/Windows côté GitLab GEGM en cours d'investigation — TBD).
+> **Distribution desktop différée et optionnelle — macOS uniquement.**
+>
+> La livraison principale est la **web app** (`https://upscaler.gegmgroup.com`).
+> Le code Tauri est complet et fonctionnel (drag-drop natif, notifications OS,
+> auto-updater ed25519), mais aucune release desktop n'est publiée pour l'instant.
+> Une distribution macOS pourrait être envisagée en dernier lieu, **uniquement si
+> un runner macOS GitLab est provisionné**. Ce runner est **optionnel et à évaluer
+> avant le départ du mainteneur** — sinon, on reste web-only.
+> **Windows est abandonné** (pas de besoin).
 
-**Procédure de release complète** (bump de version, build local, plan de
-migration S3 OVH) :
+**Procédure de release desktop macOS** (si jamais poursuivie) :
 **[`DISTRIBUTION.md`](./DISTRIBUTION.md)**.
 
-**Mode dev rapide** :
+**Mode dev Tauri (développement local uniquement)** :
 
 ```bash
 cd frontend && npm run tauri:dev
