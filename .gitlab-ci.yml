@@ -140,6 +140,7 @@ e2e:
   before_script:
     - cd frontend
     - npm ci
+    - npm run build   # build statique servi ensuite par `vite preview` (cf. playwright.config webServer en CI)
   script:
     - npm run test:e2e
   artifacts:

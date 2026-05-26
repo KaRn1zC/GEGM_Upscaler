@@ -35,7 +35,14 @@ export default defineConfig({
   ],
 
   webServer: {
-    command: "npm run dev",
+    // En CI : on sert le build statique via `vite preview` (aucun file-watcher
+    // → évite l'erreur EMFILE « too many open files » du dev server sur le
+    // runner Kubernetes, dont la limite de file descriptors est basse). En
+    // local : `vite dev` (HMR) pour le confort. Le build est produit en amont
+    // (cf. before_script du job e2e dans .gitlab-ci.yml).
+    command: process.env.CI
+      ? "npm run preview -- --port 5173 --strictPort"
+      : "npm run dev",
     url: "http://localhost:5173",
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
