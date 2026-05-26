@@ -1,0 +1,167 @@
+# .gitlab-ci.yml — CI GEGM Upscaler (lint / test / build)
+#
+# Pipeline qualité, équivalent GitLab des anciens workflows GitHub Actions
+# backend.yml + frontend.yml + e2e.yml + helm-lint.yml. Les jobs de build
+# d'images (backend, worker) et la release desktop Tauri sont ajoutés dans
+# les étapes suivantes de la migration (cf. MIGRATION_GEGM.md § 2-4).
+#
+# Déclenchement (workflow:rules) : merge requests, branche main, run manuel.
+
+stages:
+  - lint-test
+
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+    - when: never
+
+default:
+  # Un nouveau pipeline annule les jobs encore en cours sur la même ref
+  # (équivalent du concurrency cancel-in-progress de GitHub Actions).
+  interruptible: true
+
+# ─────────────────────────────── Backend ───────────────────────────────
+# ruff + mypy + alembic + pytest, avec Postgres et Redis en services.
+# Rappel GitLab : un service est joignable par son ALIAS (postgres / redis),
+# pas par localhost — d'où DATABASE_URL / REDIS_URL pointant sur ces hôtes.
+backend:
+  stage: lint-test
+  image: python:3.12-slim
+  services:
+    - name: postgres:16-alpine
+      alias: postgres
+    - name: redis:7-alpine
+      alias: redis
+  variables:
+    POSTGRES_USER: upscaler
+    POSTGRES_PASSWORD: upscaler
+    POSTGRES_DB: upscaler
+    DATABASE_URL: "postgresql+asyncpg://upscaler:upscaler@postgres:5432/upscaler"
+    REDIS_URL: "redis://redis:6379/0"
+    STORAGE_BACKEND: local
+    LOCAL_STORAGE_PATH: /tmp/gegm-upscaler-ci
+    AUTH_BACKEND: static_token
+    DEV_AUTH_TOKEN: test-token
+    UV_CACHE_DIR: "$CI_PROJECT_DIR/.uv-cache"
+  cache:
+    key:
+      files:
+        - uv.lock
+    paths:
+      - .uv-cache
+  rules:
+    - changes:
+        - backend/**/*
+        - pyproject.toml
+        - uv.lock
+        - .gitlab-ci.yml
+  before_script:
+    - pip install --no-cache-dir uv==0.11.6
+  script:
+    - uv sync --frozen
+    - uv run ruff check backend/
+    - uv run ruff format --check backend/
+    - uv run mypy backend/app/
+    # Filet de sécurité : attendre que Postgres accepte les connexions
+    # (les étapes lint ci-dessus laissent déjà le service démarrer).
+    - |
+      until python -c "import socket; socket.create_connection(('postgres', 5432), 2)" 2>/dev/null; do
+        echo "Attente de Postgres..."; sleep 1
+      done
+    - uv run alembic upgrade head
+    - uv run pytest backend/tests/ --cov=backend/app --cov-report=term-missing --cov-report=xml
+  coverage: '/(?i)TOTAL.*?(\d+(?:\.\d+)?)%/'
+  artifacts:
+    when: always
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage.xml
+    paths:
+      - coverage.xml
+    expire_in: 7 days
+
+# ─────────────────────────────── Frontend ──────────────────────────────
+# tsc (type-check) + eslint + vitest + build Vite. Cache du cache npm.
+frontend:
+  stage: lint-test
+  image: node:22
+  variables:
+    npm_config_cache: "$CI_PROJECT_DIR/.npm-cache"
+  cache:
+    key:
+      files:
+        - frontend/package-lock.json
+    paths:
+      - .npm-cache
+  rules:
+    - changes:
+        - frontend/**/*
+        - .gitlab-ci.yml
+  before_script:
+    - cd frontend
+    - npm ci
+  script:
+    - npx tsc --noEmit
+    - npm run lint
+    - npm run test:coverage
+    - npm run build
+  artifacts:
+    paths:
+      - frontend/dist
+    expire_in: 7 days
+
+# ──────────────────────────── E2E (Playwright) ─────────────────────────
+# Image officielle Playwright (navigateurs préinstallés) alignée sur la
+# version du package (@playwright/test 1.59.1). Mocks API via page.route(),
+# aucun backend réel requis.
+e2e:
+  stage: lint-test
+  image: mcr.microsoft.com/playwright:v1.59.1-noble
+  variables:
+    CI: "true"
+    npm_config_cache: "$CI_PROJECT_DIR/.npm-cache"
+  cache:
+    key:
+      files:
+        - frontend/package-lock.json
+    paths:
+      - .npm-cache
+  rules:
+    - changes:
+        - frontend/**/*
+        - .gitlab-ci.yml
+  before_script:
+    - cd frontend
+    - npm ci
+  script:
+    - npm run test:e2e
+  artifacts:
+    when: on_failure
+    paths:
+      - frontend/playwright-report/
+      - frontend/test-results/
+    expire_in: 14 days
+
+# ─────────────────────────────────── Helm ──────────────────────────────
+# helm lint + rendu prod/staging + validation YAML de la sortie rendue.
+helm:
+  stage: lint-test
+  image:
+    name: alpine/helm:3.16.2
+    entrypoint: [""]
+  rules:
+    - changes:
+        - charts/**/*
+        - .gitlab-ci.yml
+  script:
+    - helm lint charts/gegm-upscaler
+    - helm template gegm-upscaler charts/gegm-upscaler --namespace gegm-upscaler --debug > rendered-prod.yaml
+    - helm template gegm-upscaler charts/gegm-upscaler --namespace gegm-upscaler-staging -f charts/gegm-upscaler/values-staging.yaml --debug > rendered-staging.yaml
+    - apk add --no-cache python3 py3-yaml
+    - |
+      python3 -c "import yaml
+      for p in ('rendered-prod.yaml', 'rendered-staging.yaml'):
+          print(p + ':', len(list(yaml.safe_load_all(open(p)))), 'documents YAML valides')"
