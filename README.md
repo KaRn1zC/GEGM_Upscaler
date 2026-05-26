@@ -184,8 +184,8 @@ Le projet utilise **deux images Docker distinctes** et complémentaires :
 
 | Image | Registry | Rôle | Tournée sur | Version |
 |---|---|---|---|:-:|
-| **`gegm-upscaler-backend`** | `ghcr.io/karn1zc/` | API FastAPI + SPA React + Celery | Mac (dev/prod local) ou K8s GEGM | tag git `v*.*.*` |
-| **`gegm-upscaler-worker`** | `docker.io/arnaudboy/` | Inférence GPU DRCT-L / HAT-L, handler RunPod | RunPod Serverless | **v2.0** |
+| **`gegm-upscaler-backend`** | Registry GitLab GEGM | API FastAPI + SPA React + Celery | Mac (dev/prod local) ou K8s GEGM | tag git `v*.*.*` |
+| **`gegm-upscaler-worker`** | Registry GitLab GEGM (`/worker`) | Inférence GPU DRCT-L / HAT-L, handler RunPod | RunPod Serverless | **v2.0** |
 
 **Flow à chaque upscale** (identique en dev / prod-local / prod-k8s) :
 
@@ -195,18 +195,18 @@ User ─▶ Orchestrateur (backend)  ─▶  API RunPod  ─▶  Worker image (v
                                    RUNPOD_API_KEY)         sur GPU A10G)
 ```
 
-L'endpoint RunPod `sccttzfucc5ks1` pointe en permanence sur
-`arnaudboy/gegm-upscaler-worker:v2.0`. **Les changements backend/frontend
+L'endpoint RunPod `sccttzfucc5ks1` pointe sur l'image worker du registry
+GitLab GEGM (`.../worker:v2.0`). **Les changements backend/frontend
 quotidiens vivent dans l'image backend, pas dans l'image worker.** Tu ne
 rebuilds le worker que si tu modifies `runpod-worker/handler.py`,
 `Dockerfile`, `requirements.txt` ou les poids.
 
 ### Build & release de l'image backend
 
-Voie standard : un tag git `v*.*.*` déclenche `.github/workflows/docker.yml`
-qui fait build multi-arch + Trivy scan + push GHCR + mirror GitLab + push
-chart OCI. Procédure complète A-à-Z (cycle de release, rollback,
-checklist) : [`DEPLOYMENT.md`](./DEPLOYMENT.md) §§ 4-6.
+Voie standard : un tag git `v*.*.*` déclenche le job `backend-image` du
+`.gitlab-ci.yml` (build Kaniko + push registry GitLab + scan Trivy). Le
+déploiement est ensuite assuré par ArgoCD (GitOps). Procédure complète :
+[`DEPLOYMENT.md`](./DEPLOYMENT.md) (en cours d'actualisation post-migration GitLab).
 
 ### Build & release de l'image worker RunPod
 
