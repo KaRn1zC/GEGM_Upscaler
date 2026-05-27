@@ -59,7 +59,7 @@
   - [Frontend (TypeScript + React)](#frontend-typescript--react)
   - [Helm chart](#helm-chart)
   - [CI GitLab](#ci-gitlab)
-- [12. Documentation détaillée](#12-documentation-détaillée)
+- [12. Configuration \& références](#12-configuration--références)
 - [13. Licence](#13-licence)
 
 ---
@@ -525,3 +525,4 @@ d'incident) est maintenue **en interne par l'équipe GEGM**.
 ## 13. Licence
 
 Propriétaire — usage interne GEGM uniquement.
+Développé par Arnaud 'KaRn1zC' BOY
