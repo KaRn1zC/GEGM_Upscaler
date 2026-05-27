@@ -76,15 +76,9 @@ runpod-worker/models/*.pth
 e2e-*.png
 .claude/
 .mcp.json
-CLAUDE.md
-frontend/CLAUDE.md
-
-# Docs
-INFRA_QUESTIONS.md
-INFRA_LIVRABLES.md
-SENTRY_SETUP.md
-MIGRATION_GEGM.md
-GUIDE_MIGRATION_GITLAB.md
+# Tous les .md sont hors-repo (docs internes / perso), SAUF le README global
+*.md
+!/README.md
 # Archis DRCT/HAT clonees pour la conversion Core ML (H.1)
 vendor/
 # Modeles Core ML generes (lourds, gitignores)

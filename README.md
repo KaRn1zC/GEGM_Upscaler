@@ -70,7 +70,7 @@ L'outil permet aux utilisateurs GEGM d'upscaler des images par
 super-résolution IA (DRCT-L / HAT-L). En v1, l'inférence tourne
 **100 % sur RunPod Serverless** (~$0.0005 / image). L'inférence locale
 Core ML sur Apple Silicon est différée v2 (bloquée upstream sur
-`coremltools` 10+, cf. [`SUIVI.md`](./SUIVI.md) § 11.4 A7).
+`coremltools` 10+, infrastructure prête dans le code).
 
 Disponible en **web app** (`https://upscaler.gegmgroup.com` après déploiement) —
 c'est le mode de distribution principal et actif. Le code inclut un shell
@@ -136,8 +136,7 @@ Utilisateurs GEGM
 **Principe d'abstraction** : chaque dépendance infra (Storage, Auth, GPU,
 Secrets) est derrière une ABC Python dans `backend/app/core/`. Le code
 métier ne connaît que les interfaces — swap d'implémentation via `.env`
-sans modifier le code. Détails complets dans
-[`ARCHITECTURE.md`](./ARCHITECTURE.md).
+sans modifier le code (ABC dans `backend/app/core/{storage,auth,secrets,gpu}/interface.py`).
 
 ---
 
@@ -206,16 +205,18 @@ rebuilds le worker que si tu modifies `runpod-worker/handler.py`,
 
 ### Build & release de l'image backend
 
-Voie standard : un tag git `v*.*.*` déclenche le job `backend-image` du
-`.gitlab-ci.yml` (build Kaniko + push registry GitLab + scan Trivy). Le
-déploiement est ensuite assuré par ArgoCD (GitOps). Procédure complète :
-[`DEPLOYMENT.md`](./DEPLOYMENT.md) (en cours d'actualisation post-migration GitLab).
+Un tag git `v*.*.*` déclenche le job `backend-image` du `.gitlab-ci.yml`
+(build Kaniko + push sur le registry GitLab + scan Trivy). Le déploiement
+est ensuite assuré par **ArgoCD** (GitOps) qui synchronise le cluster depuis
+le dépôt de manifestes — aucun `helm upgrade` ni `kubectl` manuel.
 
 ### Build & release de l'image worker RunPod
 
-Procédure dédiée (commandes `docker build --platform linux/amd64`,
-download des poids, push Docker Hub, mise à jour endpoint RunPod) :
-[`runpod-worker/README.md`](./runpod-worker/README.md).
+Build **local** (`docker build --platform linux/amd64`, avec les poids du
+modèle téléchargés au préalable), push sur le registry GitLab GEGM sous
+`/worker`, puis repoint du Container Image de l'endpoint RunPod
+`sccttzfucc5ks1`. Le worker n'est rebuild que si `handler.py`, le `Dockerfile`,
+`requirements.txt` ou les poids changent.
 
 ---
 
@@ -410,20 +411,21 @@ Pour tester ces couches, il faut passer en § 9.
 
 ## 9. Mode Prod routinière — cluster K8s GEGM
 
-Déploiement réel sur `https://upscaler.gegmgroup.com` via Kubernetes +
-Helm chart `charts/gegm-upscaler/`.
+Déploiement réel sur `https://upscaler.gegmgroup.com` via Kubernetes + le
+chart Helm `charts/gegm-upscaler/`, en **GitOps via ArgoCD** :
 
-**Procédure complète A-à-Z** (prérequis, secrets Vault, première install,
-cycle de release, rollback, observabilité, dépannage) :
-**[`DEPLOYMENT.md`](./DEPLOYMENT.md)**.
+1. Un tag git `v*.*.*` → la CI GitLab (`backend-image`) build et push l'image
+   sur le registry GitLab GEGM.
+2. **ArgoCD** synchronise le cluster depuis le dépôt de manifestes (chart +
+   `values`) — aucun `helm upgrade` ni `kubectl` manuel.
 
-**Playbooks d'astreinte** (10 alertes PrometheusRule + 3 pannes
-hors-alerte + procédure restore CNPG + post-mortem) :
-[`RUNBOOK.md`](./RUNBOOK.md).
-
-**Checklist exhaustive des livrables infra** (17 placeholders chart + 8
-secrets Vault + 8 GitHub vars + provisionnements Keycloak/Sentry/DNS) :
-[`INFRA_QUESTIONS.md`](./INFRA_QUESTIONS.md).
+Le chart consomme les services managés fournis par l'infra GEGM (CNPG
+Postgres, KeyDB, Vault via External Secrets Operator, Envoy Gateway +
+cert-manager, RunPod, Sentry self-hosted). Les valeurs à renseigner sont
+marquées `<TO_FILL:...>` dans `charts/gegm-upscaler/values.yaml` ; les secrets
+proviennent de Vault (bloc `externalSecret` du chart). Les procédures
+d'exploitation détaillées (première install, rollback, restore CNPG,
+playbooks d'incident) sont maintenues en interne par l'équipe GEGM.
 
 ---
 
@@ -439,21 +441,19 @@ secrets Vault + 8 GitHub vars + provisionnements Keycloak/Sentry/DNS) :
 > avant le départ du mainteneur** — sinon, on reste web-only.
 > **Windows est abandonné** (pas de besoin).
 
-**Procédure de release desktop macOS** (si jamais poursuivie) :
-**[`DISTRIBUTION.md`](./DISTRIBUTION.md)**.
-
-**Mode dev Tauri (développement local uniquement)** :
+**Mode dev Tauri (développement local)** :
 
 ```bash
 cd frontend && npm run tauri:dev
 ```
 
-Lance Vite + Tauri en hot-reload sur le code React et le code Rust.
-Requiert que l'API backend tourne (cf. § 7, terminal 2).
+Lance Vite + Tauri en hot-reload (React + Rust). Requiert que l'API backend
+tourne (cf. § 7).
 
-⚠️ **Ne jamais régénérer la clé de signature updater** (`tauri.key`) —
-tous les clients déjà installés deviendraient incapables de recevoir des
-mises à jour. Détails : [`DISTRIBUTION.md`](./DISTRIBUTION.md) § 2.
+La clé de signature de l'updater (`frontend/src-tauri/tauri.key`, gitignorée)
+est détenue par GEGM ; la clé publique vit dans `tauri.conf.json`. Aucune
+release publique n'ayant été publiée, elle peut être régénérée sans risque
+tant que c'est le cas.
 
 ---
 
@@ -508,20 +508,17 @@ l'utiliser comme source de vérité pour les procédures CI/CD.
 
 ---
 
-## 12. Documentation détaillée
+## 12. Configuration & références
 
 | Fichier | Contenu |
 |---|---|
-| [`ARCHITECTURE.md`](./ARCHITECTURE.md) | Spec complète, ADR, décisions de stack |
-| [`DEPLOYMENT.md`](./DEPLOYMENT.md) | Guide A-à-Z déploiement K8s (checklist, secrets, rollback) |
-| [`DISTRIBUTION.md`](./DISTRIBUTION.md) | Procédure release desktop, updater ed25519, install utilisateurs |
-| [`RUNBOOK.md`](./RUNBOOK.md) | Playbooks incident par alerte + procédure restore CNPG + post-mortem |
-| [`GRAFANA_OAUTH.md`](./GRAFANA_OAUTH.md) | Intégration SSO Keycloak pour Grafana |
-| [`INFRA_QUESTIONS.md`](./INFRA_QUESTIONS.md) | Checklist exhaustive des livrables infra en attente |
-| [`SUIVI.md`](./SUIVI.md) | Tracking d'avancement par phase, todolist, finitions post-prod |
 | [`.env.example`](./.env.example) | Variables d'environnement backend documentées |
-| [`charts/gegm-upscaler/values.yaml`](./charts/gegm-upscaler/values.yaml) | Config Helm commentée en ligne |
-| [`runpod-worker/README.md`](./runpod-worker/README.md) | Build/deploy de l'image RunPod Serverless |
+| [`charts/gegm-upscaler/values.yaml`](./charts/gegm-upscaler/values.yaml) | Configuration Helm commentée en ligne (placeholders `<TO_FILL:...>`) |
+| `backend/app/core/*/interface.py` | Les ABC Storage / Auth / Secrets / GPU — contrats d'abstraction |
+| `.gitlab-ci.yml` | Pipeline CI/CD (lint-test + build image backend) |
+
+La documentation d'exploitation détaillée (architecture, déploiement, runbook
+d'incident) est maintenue **en interne par l'équipe GEGM**.
 
 ---
 
