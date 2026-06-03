@@ -4,7 +4,8 @@
 #   - stage lint-test : backend (ruff/mypy/pytest), frontend (tsc/eslint/
 #     vitest/build), E2E Playwright, chart Helm.
 #   - stage build     : image backend → registry GitLab (sur tag v*.*.*).
-# À venir (cf. MIGRATION_GEGM.md § 3-4) : image worker + release desktop Tauri.
+#   - stage deploy    : bump du tag image dans le dépôt GitOps `-argocd`
+#                       (ArgoCD prend le relais et synchronise). Sur tag v*.*.*.
 #
 # Déclenchement (workflow:rules) : merge requests, branche main, tags v*.*.*,
 # run manuel.
@@ -12,6 +13,7 @@
 stages:
   - lint-test
   - build
+  - deploy
 
 workflow:
   rules:
@@ -220,3 +222,43 @@ backend-image-scan:
     TRIVY_PASSWORD: "${CI_REGISTRY_PASSWORD}"
   script:
     - trivy image --exit-code 1 --severity CRITICAL,HIGH --ignore-unfixed "${CI_REGISTRY_IMAGE}:${CI_COMMIT_TAG}"
+
+# ═══════════════════════ Bump GitOps (ArgoCD) ══════════════════════════
+# Dernier maillon CI → déploiement. Après build + scan OK, met à jour
+# `image.tag` dans le dépôt GitOps `gegm-upscaler-argocd` (fichier prod.yaml).
+# ArgoCD détecte le commit et synchronise le cluster (Application multi-sources :
+# chart `.helm/` du repo applicatif + prod.yaml). Aucun helm/kubectl ici.
+#
+# Auth : variable CI `GITLAB_TOKEN` (write_repository sur le dépôt -argocd).
+# Prérequis : la variable doit être *masquée* (sinon le token fuite dans les
+# logs) et disponible sur les pipelines de tags protégés (`v*`).
+deploy-bump-tag:
+  stage: deploy
+  image: alpine:3.20
+  # Ne bumpe que si l'image a été buildée ET le scan Trivy est passé.
+  needs: ["backend-image-scan"]
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
+  # Un déploiement ne doit jamais être annulé en cours de route.
+  interruptible: false
+  variables:
+    ARGOCD_REPO: "gitlab.kangourouge.com/gegm-creative/ai/gegm-upscaler-argocd.git"
+  before_script:
+    - apk add --no-cache git yq
+  script:
+    - git clone --depth 1 "https://oauth2:${GITLAB_TOKEN}@${ARGOCD_REPO}" argocd
+    - cd argocd
+    - TAG="$CI_COMMIT_TAG" yq -i '.image.tag = strenv(TAG)' prod.yaml
+    - echo "prod.yaml après bump :" && cat prod.yaml
+    - git config user.email "ci@gegmgroup.com"
+    - git config user.name "GitLab CI — gegm-upscaler"
+    - git add prod.yaml
+    # Idempotent : si le tag est déjà à jour (re-run), on ne crée pas de commit
+    # vide. [skip ci] évite de déclencher un pipeline inutile sur le -argocd.
+    - |
+      if git diff --cached --quiet; then
+        echo "image.tag déjà à ${CI_COMMIT_TAG} — rien à committer."
+      else
+        git commit -m "chore(deploy): prod image tag → ${CI_COMMIT_TAG} [skip ci]"
+        git push origin HEAD:main
+      fi
