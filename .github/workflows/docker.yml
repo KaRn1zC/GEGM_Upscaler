@@ -253,14 +253,14 @@ jobs:
       - name: Rewrite Chart.yaml version/appVersion to match the pushed tag
         run: |
           yq -i '.version = strenv(CHART_VERSION) | .appVersion = strenv(CHART_VERSION)' \
-            charts/gegm-upscaler/Chart.yaml
-          cat charts/gegm-upscaler/Chart.yaml
+            .helm/Chart.yaml
+          cat .helm/Chart.yaml
 
       - name: Helm lint
-        run: helm lint charts/gegm-upscaler
+        run: helm lint .helm
 
       - name: Helm package
-        run: helm package charts/gegm-upscaler -d /tmp/chart-dist
+        run: helm package .helm -d /tmp/chart-dist
 
       - name: Login to GHCR (OCI)
         env:

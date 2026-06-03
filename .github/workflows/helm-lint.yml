@@ -1,6 +1,6 @@
 name: Helm Lint
 
-# Valide le chart Helm `charts/gegm-upscaler/` sur toute PR et push main
+# Valide le chart Helm `.helm/` sur toute PR et push main
 # qui touche les manifests K8s. Bloque le merge si `helm lint`, `helm
 # template` ou le check YAML raw echoue.
 #
@@ -15,11 +15,11 @@ on:
   push:
     branches: [main]
     paths:
-      - "charts/**"
+      - ".helm/**"
       - ".github/workflows/helm-lint.yml"
   pull_request:
     paths:
-      - "charts/**"
+      - ".helm/**"
       - ".github/workflows/helm-lint.yml"
 
 permissions:
@@ -47,20 +47,20 @@ jobs:
           version: v3.16.2
 
       - name: helm lint
-        run: helm lint charts/gegm-upscaler
+        run: helm lint .helm
 
       - name: helm template (prod values)
         run: |
-          helm template gegm-upscaler charts/gegm-upscaler \
+          helm template gegm-upscaler .helm \
             --namespace gegm-upscaler \
             --debug \
             > /tmp/rendered-prod.yaml
 
       - name: helm template (staging values)
         run: |
-          helm template gegm-upscaler charts/gegm-upscaler \
+          helm template gegm-upscaler .helm \
             --namespace gegm-upscaler-staging \
-            -f charts/gegm-upscaler/values-staging.yaml \
+            -f .helm/values-staging.yaml \
             --debug \
             > /tmp/rendered-staging.yaml
 

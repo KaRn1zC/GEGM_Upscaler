@@ -159,12 +159,12 @@ helm:
     entrypoint: [""]
   rules:
     - changes:
-        - charts/**/*
+        - .helm/**/*
         - .gitlab-ci.yml
   script:
-    - helm lint charts/gegm-upscaler
-    - helm template gegm-upscaler charts/gegm-upscaler --namespace gegm-upscaler --debug > rendered-prod.yaml
-    - helm template gegm-upscaler charts/gegm-upscaler --namespace gegm-upscaler-staging -f charts/gegm-upscaler/values-staging.yaml --debug > rendered-staging.yaml
+    - helm lint .helm
+    - helm template gegm-upscaler .helm --namespace gegm-upscaler --debug > rendered-prod.yaml
+    - helm template gegm-upscaler .helm --namespace gegm-upscaler-staging -f .helm/values-staging.yaml --debug > rendered-staging.yaml
     - apk add --no-cache python3 py3-yaml
     - |
       python3 -c "import yaml

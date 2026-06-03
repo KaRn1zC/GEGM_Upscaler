@@ -412,17 +412,19 @@ Pour tester ces couches, il faut passer en § 9.
 ## 9. Mode Prod routinière — cluster K8s GEGM
 
 Déploiement réel sur `https://upscaler.gegmgroup.com` via Kubernetes + le
-chart Helm `charts/gegm-upscaler/`, en **GitOps via ArgoCD** :
+chart Helm `.helm/`, en **GitOps via ArgoCD** :
 
 1. Un tag git `v*.*.*` → la CI GitLab (`backend-image`) build et push l'image
-   sur le registry GitLab GEGM.
-2. **ArgoCD** synchronise le cluster depuis le dépôt de manifestes (chart +
-   `values`) — aucun `helm upgrade` ni `kubectl` manuel.
+   sur le registry GitLab GEGM, puis commit le nouveau tag dans le dépôt GitOps
+   dédié (`gegm-upscaler-argocd`).
+2. **ArgoCD** (Application multi-sources : chart `.helm/` du dépôt applicatif +
+   tag image du dépôt `-argocd`) synchronise le cluster — aucun `helm upgrade`
+   ni `kubectl` manuel.
 
 Le chart consomme les services managés fournis par l'infra GEGM (CNPG
 Postgres, KeyDB, Vault via External Secrets Operator, Envoy Gateway +
 cert-manager, RunPod, Sentry self-hosted). Les valeurs à renseigner sont
-marquées `<TO_FILL:...>` dans `charts/gegm-upscaler/values.yaml` ; les secrets
+marquées `<TO_FILL:...>` dans `.helm/values.yaml` ; les secrets
 proviennent de Vault (bloc `externalSecret` du chart). Les procédures
 d'exploitation détaillées (première install, rollback, restore CNPG,
 playbooks d'incident) sont maintenues en interne par l'équipe GEGM.
@@ -485,8 +487,8 @@ npm run test:e2e            # 14 tests Playwright
 ### Helm chart
 
 ```bash
-helm lint charts/gegm-upscaler
-helm template gegm-upscaler charts/gegm-upscaler -f values-prod.local.yaml \
+helm lint .helm
+helm template gegm-upscaler .helm -f values-prod.local.yaml \
   | kubectl --dry-run=server apply -f -
 ```
 
@@ -513,7 +515,7 @@ l'utiliser comme source de vérité pour les procédures CI/CD.
 | Fichier | Contenu |
 |---|---|
 | [`.env.example`](./.env.example) | Variables d'environnement backend documentées |
-| [`charts/gegm-upscaler/values.yaml`](./charts/gegm-upscaler/values.yaml) | Configuration Helm commentée en ligne (placeholders `<TO_FILL:...>`) |
+| [`.helm/values.yaml`](./.helm/values.yaml) | Configuration Helm commentée en ligne (placeholders `<TO_FILL:...>`) |
 | `backend/app/core/*/interface.py` | Les ABC Storage / Auth / Secrets / GPU — contrats d'abstraction |
 | `.gitlab-ci.yml` | Pipeline CI/CD (lint-test + build image backend) |
 
