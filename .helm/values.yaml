@@ -263,16 +263,9 @@ gateway:
   parentRefs:
     - name: "<TO_FILL:ENVOY_GATEWAY_NAME>"
       namespace: "<TO_FILL:ENVOY_GATEWAY_NAMESPACE>"
-      sectionName: "<TO_FILL:ENVOY_GATEWAY_LISTENER>"  # ex: https
   # Hostname public de l'app — DNS doit pointer sur le LB de la Gateway.
   hostnames:
     - "upscaler.gegmgroup.com"
-  # cert-manager : le ClusterIssuer doit déjà être configuré côté infra.
-  # L'annotation sera posée sur la HTTPRoute (ou directement consommée via
-  # un Certificate CR séparé — à clarifier selon la convention GEGM).
-  tls:
-    clusterIssuer: "<TO_FILL:CERT_MANAGER_CLUSTER_ISSUER>"  # ex: letsencrypt-prod
-    secretName: "gegm-upscaler-tls"
 
 # ─── Rate limiting (Envoy Gateway BackendTrafficPolicy) ───────────────────
 # Protection simple contre les usages abusifs. `Local` = en mémoire de

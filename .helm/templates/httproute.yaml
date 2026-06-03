@@ -9,22 +9,12 @@ metadata:
   name: {{ include "gegm-upscaler.fullname" . }}
   labels:
     {{- include "gegm-upscaler.labels" . | nindent 4 }}
-  {{- if .Values.gateway.tls.clusterIssuer }}
-  annotations:
-    # cert-manager détecte cette annotation et provisionne un Certificate
-    # pour le hostname — le TLS secret est stocké dans `secretName` (voir
-    # listener de la Gateway qui le référence).
-    cert-manager.io/cluster-issuer: {{ .Values.gateway.tls.clusterIssuer | quote }}
-  {{- end }}
 spec:
   parentRefs:
     {{- range .Values.gateway.parentRefs }}
     - name: {{ .name }}
       {{- with .namespace }}
       namespace: {{ . }}
-      {{- end }}
-      {{- with .sectionName }}
-      sectionName: {{ . }}
       {{- end }}
     {{- end }}
   hostnames:
