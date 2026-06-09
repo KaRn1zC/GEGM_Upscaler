@@ -4,11 +4,12 @@ name: Helm Lint
 # qui touche les manifests K8s. Bloque le merge si `helm lint`, `helm
 # template` ou le check YAML raw echoue.
 #
-# 3 niveaux de validation :
-#   1. `helm lint` : syntaxe + best practices Helm
-#   2. `helm template --debug` : resolution complete des templates (prod
+# 4 niveaux de validation :
+#   1. `helm dependency build` : telecharge les sous-charts (keydb)
+#   2. `helm lint` : syntaxe + best practices Helm
+#   3. `helm template --debug` : resolution complete des templates (prod
 #      + staging) — detecte les erreurs de rendu
-#   3. Validation YAML : `yq` parse la sortie rendue — detecte les YAML
+#   4. Validation YAML : `yq` parse la sortie rendue — detecte les YAML
 #      invalides qui passeraient le lint mais ne se deploieraient pas
 
 on:
@@ -45,6 +46,11 @@ jobs:
         uses: azure/setup-helm@v4
         with:
           version: v3.16.2
+
+      - name: helm dependency build
+        run: |
+          helm repo add keydb https://vixns.github.io/keydb-helm-chart/
+          helm dependency build .helm
 
       - name: helm lint
         run: helm lint .helm

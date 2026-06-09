@@ -256,6 +256,11 @@ jobs:
             .helm/Chart.yaml
           cat .helm/Chart.yaml
 
+      - name: Helm dependency build
+        run: |
+          helm repo add keydb https://vixns.github.io/keydb-helm-chart/
+          helm dependency build .helm
+
       - name: Helm lint
         run: helm lint .helm
 
