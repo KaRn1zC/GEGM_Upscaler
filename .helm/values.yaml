@@ -102,12 +102,12 @@ config:
   UPSCALE_MODEL: "drct-l"
 
   # Storage S3 OVH — input (uploads) et output (résultats)
-  S3_BUCKET: "gegm-upscaler-inputs-prod"
-  S3_ENDPOINT_URL: "<TO_FILL:S3_ENDPOINT_URL>"  # ex: https://s3.gra.io.cloud.ovh.net
-  S3_REGION: "<TO_FILL:S3_REGION>"              # ex: gra
-  S3_OUTPUT_BUCKET: "gegm-upscaler-outputs-prod"
-  S3_OUTPUT_ENDPOINT_URL: "<TO_FILL:S3_OUTPUT_ENDPOINT_URL>"  # identique à S3_ENDPOINT_URL si même provider
-  S3_OUTPUT_REGION: "<TO_FILL:S3_OUTPUT_REGION>"
+  S3_BUCKET: "upscaler-gegmgroup-com-inbox"
+  S3_ENDPOINT_URL: "https://s3.gra.io.cloud.ovh.net"  # ex: https://s3.gra.io.cloud.ovh.net
+  S3_REGION: "gra"              # ex: gra
+  S3_OUTPUT_BUCKET: "upscaler-gegmgroup-com-outbox"
+  S3_OUTPUT_ENDPOINT_URL: "https://s3.gra.io.cloud.ovh.net"  # identique à S3_ENDPOINT_URL si même provider
+  S3_OUTPUT_REGION: "gra"
 
   # Keycloak OIDC
   OIDC_ISSUER: "<TO_FILL:OIDC_ISSUER>"      # ex: https://keycloak.gegm.internal/realms/gegm
