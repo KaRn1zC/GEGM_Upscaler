@@ -3,12 +3,17 @@
 # Pipeline GitLab, équivalent des anciens workflows GitHub Actions.
 #   - stage lint-test : backend (ruff/mypy/pytest), frontend (tsc/eslint/
 #     vitest/build), E2E Playwright, chart Helm.
-#   - stage build     : image backend → registry GitLab (sur tag v*.*.*).
+#   - stage build     : image backend → registry GitLab (sur tag prod ou v*.*.*).
 #   - stage deploy    : bump du tag image dans le dépôt GitOps `-argocd`
-#                       (ArgoCD prend le relais et synchronise). Sur tag v*.*.*.
+#                       (ArgoCD prend le relais et synchronise). Sur tag prod
+#                       ou v*.*.*.
 #
-# Déclenchement (workflow:rules) : merge requests, branche main, tags v*.*.*,
-# run manuel.
+# Déclenchement (workflow:rules) : merge requests, branche main, tags (prod,
+# v*.*.*), run manuel.
+
+# Règle partagée : pipeline release complet (lint-test + build + deploy).
+.release_tag_rule: &release_tag_rule
+  if: '$CI_COMMIT_TAG == "prod" || $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
 
 stages:
   - lint-test
@@ -58,6 +63,7 @@ backend:
     paths:
       - .uv-cache
   rules:
+    - <<: *release_tag_rule
     - changes:
         - backend/**/*
         - pyproject.toml
@@ -103,6 +109,7 @@ frontend:
     paths:
       - .npm-cache
   rules:
+    - <<: *release_tag_rule
     - changes:
         - frontend/**/*
         - .gitlab-ci.yml
@@ -136,6 +143,7 @@ e2e:
     paths:
       - .npm-cache
   rules:
+    - <<: *release_tag_rule
     - changes:
         - frontend/**/*
         - .gitlab-ci.yml
@@ -160,6 +168,7 @@ helm:
     name: alpine/helm:3.16.2
     entrypoint: [""]
   rules:
+    - <<: *release_tag_rule
     - changes:
         - .helm/**/*
         - .gitlab-ci.yml
@@ -176,8 +185,8 @@ helm:
           print(p + ':', len(list(yaml.safe_load_all(open(p)))), 'documents YAML valides')"
 
 # ════════════════════════ Build image backend ══════════════════════════
-# Build + push de l'image backend sur le registry GitLab GEGM, sur tag
-# v*.*.*. Kaniko (pas de mode privilégié requis — compatible runners
+# Build + push de l'image backend sur le registry GitLab GEGM, sur tag prod
+# ou v*.*.*. Kaniko (pas de mode privilégié requis — compatible runners
 # Kubernetes). Auth via les variables built-in CI_REGISTRY*. Les build-args
 # VITE_* retombent sur des valeurs par défaut tant que les variables CI
 # (cf. tâche #53) ne sont pas définies — l'image reste alors en mode dev.
@@ -189,7 +198,7 @@ backend-image:
     name: gcr.io/kaniko-project/executor:debug
     entrypoint: [""]
   rules:
-    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
+    - <<: *release_tag_rule
   before_script:
     - mkdir -p /kaniko/.docker
     - |
@@ -218,7 +227,7 @@ backend-image-scan:
     name: aquasec/trivy:latest
     entrypoint: [""]
   rules:
-    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
+    - <<: *release_tag_rule
   variables:
     TRIVY_USERNAME: "${CI_REGISTRY_USER}"
     TRIVY_PASSWORD: "${CI_REGISTRY_PASSWORD}"
@@ -235,14 +244,14 @@ backend-image-scan:
 #
 # Auth : variable CI `GITLAB_TOKEN` (write_repository sur le dépôt -argocd).
 # Prérequis : la variable doit être *masquée* (sinon le token fuite dans les
-# logs) et disponible sur les pipelines de tags protégés (`v*`).
+# logs) et disponible sur les pipelines de tags protégés (`prod`, `v*`).
 deploy-bump-tag:
   stage: deploy
   image: alpine:3.20
   # Ne bumpe que si l'image a été buildée ET le scan Trivy est passé.
   needs: ["backend-image-scan"]
   rules:
-    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
+    - <<: *release_tag_rule
   # Un déploiement ne doit jamais être annulé en cours de route.
   interruptible: false
   variables:
