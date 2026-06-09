@@ -110,8 +110,8 @@ config:
   S3_OUTPUT_REGION: "gra"
 
   # Keycloak OIDC
-  OIDC_ISSUER: "<TO_FILL:OIDC_ISSUER>"      # ex: https://keycloak.gegm.internal/realms/gegm
-  OIDC_CLIENT_ID: "gegm-upscaler"
+  OIDC_ISSUER: "https://sso.vixns.net/auth/realms/gegm"      # ex: https://keycloak.gegm.internal/realms/gegm
+  OIDC_CLIENT_ID: "upscaler.gegmgroup.com"
 
   # RunPod Serverless
   RUNPOD_ENDPOINT_ID: "sccttzfucc5ks1"
