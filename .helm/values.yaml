@@ -48,7 +48,7 @@ serviceAccount:
 # ─── External Secrets Operator ──────────────────────────────────────────────
 # Synchronise les secrets Vault en Secret K8s natif consommé via envFrom.
 # Les clés attendues côté Vault doivent exister avant déploiement
-# (voir `kv/gegm-upscaler` ou path équivalent fourni par l'infra).
+# (un objet KV unique à `remoteKey`, clés = noms des variables d'env).
 externalSecret:
   enabled: true
   # Fréquence de resync Vault → Secret K8s (incident Vault de courte durée
@@ -57,34 +57,26 @@ externalSecret:
   secretStoreRef:
     name: "<TO_FILL:CLUSTER_SECRET_STORE_NAME>"  # ex: vault-cluster-store
     kind: ClusterSecretStore
-  # Clés attendues dans Vault (chemin complet = vaultMountPath + / + remoteKey).
-  # `secretKey` = nom de la variable d'env que verra le pod.
-  # `remoteKey` = chemin relatif sous le mount Vault (ex: "db-password"
-  # si le mount est `secret/gegm-upscaler/`).
-  data:
+  # Chemin unique du secret Vault (relatif au mount du ClusterSecretStore).
+  # Toutes les clés vivent dans un seul objet KV ; le nom de chaque clé
+  # doit correspondre exactement à la variable d'env consommée par l'app.
+  remoteKey: "gegm-creative/prod/upscaler"
+  keys:
     # Database (CNPG Postgres)
-    - secretKey: DB_PASSWORD
-      remoteKey: "gegm-creative/prod/upscaler/db-password"
+    - DB_PASSWORD
     # Storage S3 OVH (app — R/W sur inputs + outputs)
-    - secretKey: S3_ACCESS_KEY
-      remoteKey: "gegm-creative/prod/upscaler/s3-access-key"
-    - secretKey: S3_SECRET_KEY
-      remoteKey: "gegm-creative/prod/upscaler/s3-secret-key"
+    - S3_ACCESS_KEY
+    - S3_SECRET_KEY
     # Storage S3 OVH (output bucket — credentials pourraient être identiques
     # ou différents selon le scoping retenu, cf. INFRA_QUESTIONS section 2)
-    - secretKey: S3_OUTPUT_ACCESS_KEY
-      remoteKey: "gegm-creative/prod/upscaler/s3-output-access-key"
-    - secretKey: S3_OUTPUT_SECRET_KEY
-      remoteKey: "gegm-creative/prod/upscaler/s3-output-secret-key"
+    - S3_OUTPUT_ACCESS_KEY
+    - S3_OUTPUT_SECRET_KEY
     # Keycloak OIDC
-    - secretKey: OIDC_CLIENT_SECRET
-      remoteKey: "gegm-creative/prod/upscaler/oidc-client-secret"
+    - OIDC_CLIENT_SECRET
     # RunPod Serverless
-    - secretKey: RUNPOD_API_KEY
-      remoteKey: "gegm-creative/prod/upscaler/runpod-api-key"
+    - RUNPOD_API_KEY
     # Sentry self-hosted
-    - secretKey: SENTRY_DSN
-      remoteKey: "gegm-creative/prod/upscaler/sentry-dsn-backend"
+    - SENTRY_DSN
 
 # ─── Config publique (ConfigMap → envFrom) ─────────────────────────────────
 config:
