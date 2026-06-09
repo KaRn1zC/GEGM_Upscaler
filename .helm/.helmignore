@@ -2,7 +2,6 @@
 .git/
 .gitignore
 .editorconfig
-*.tgz
 .vscode/
 .idea/
 *.bak
