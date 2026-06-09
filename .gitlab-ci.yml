@@ -153,7 +153,7 @@ e2e:
     expire_in: 14 days
 
 # ─────────────────────────────────── Helm ──────────────────────────────
-# helm lint + rendu prod/staging + validation YAML de la sortie rendue.
+# helm dependency build + lint + rendu prod/staging + validation YAML.
 helm:
   stage: lint-test
   image:
@@ -164,6 +164,7 @@ helm:
         - .helm/**/*
         - .gitlab-ci.yml
   script:
+    - helm dependency build .helm
     - helm lint .helm
     - helm template gegm-upscaler .helm --namespace gegm-upscaler --debug > rendered-prod.yaml
     - helm template gegm-upscaler .helm --namespace gegm-upscaler-staging -f .helm/values-staging.yaml --debug > rendered-staging.yaml
