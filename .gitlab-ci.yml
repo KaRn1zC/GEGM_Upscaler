@@ -164,6 +164,7 @@ helm:
         - .helm/**/*
         - .gitlab-ci.yml
   script:
+    - helm repo add keydb https://vixns.github.io/keydb-helm-chart/
     - helm dependency build .helm
     - helm lint .helm
     - helm template gegm-upscaler .helm --namespace gegm-upscaler --debug > rendered-prod.yaml
