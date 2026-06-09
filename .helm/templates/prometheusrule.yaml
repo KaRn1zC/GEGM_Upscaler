@@ -148,39 +148,6 @@ spec:
               cleanup quotidien ne libère plus l'espace disque.
         {{- end }}
 
-        {{- if .Values.database.backup.enabled }}
-        - alert: CnpgBackupStale
-          # Alerte si le dernier backup base pgBackRest dépasse le seuil.
-          # Métrique exposée par l'opérateur CNPG (cnpg-prometheus-exporter)
-          # `cnpg_last_available_backup_timestamp` (epoch seconds).
-          # Staleness = `time() - last_backup` > seuil en secondes.
-          #
-          # Requiert que le ServiceMonitor CNPG Operator scrape bien cette
-          # métrique — à confirmer avec l'infra GEGM.
-          expr: |
-            (time() - max(cnpg_last_available_backup_timestamp{
-              namespace="{{ .Release.Namespace }}"
-            })) > {{ mul .Values.database.backup.staleThresholdHours 3600 }}
-          for: 30m
-          labels:
-            severity: critical
-            component: database
-            service: gegm-upscaler
-          annotations:
-            summary: "Aucun backup CNPG récent (> {{ .Values.database.backup.staleThresholdHours }}h)"
-            description: |
-              Le dernier backup base pgBackRest dépasse {{ .Values.database.backup.staleThresholdHours }}h.
-              Le RPO ({{ .Values.database.backup.rpo }}) n'est plus respecté — une panne
-              DB maintenant perdrait plus de données que prévu.
-
-              Diagnostic :
-              - `kubectl -n <cnpg-namespace> logs -l cnpg.io/cluster=<name> -c postgres`
-              - Vérifier l'état du bucket S3 `{{ .Values.database.backup.s3Bucket }}`
-                (quotas, credentials pgBackRest).
-              - Checker si l'opérateur CNPG voit bien le Backup CR :
-                `kubectl -n <ns> get scheduledbackups,backups`
-        {{- end }}
-
         {{- if .Values.celeryExporter.enabled }}
         - alert: CeleryQueueSaturated
           # Plus de 50 tâches en attente depuis 10 min — signale que
