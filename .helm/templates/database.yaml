@@ -1,0 +1,12 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: upscaler-{{.Values.env}}
+  namespace: gegm
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  name: upscaler_{{.Values.env}}
+  owner: upscaler_{{.Values.env}}
+  cluster:
+    name: pg

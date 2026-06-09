@@ -34,3 +34,8 @@ maintainers:
 home: https://gitlab.kangourouge.com/gegm-creative/ai/gegm-upscaler
 sources:
   - https://gitlab.kangourouge.com/gegm-creative/ai/gegm-upscaler
+
+dependencies:
+- name: keydb
+  version: 1.0.7
+  repository: https://vixns.github.io/keydb-helm-chart/
