@@ -29,7 +29,7 @@ Vérifications rapides :
   kubectl logs -n {{ .Release.Namespace }} -l app.kubernetes.io/component=api --tail=50
   kubectl logs -n {{ .Release.Namespace }} -l app.kubernetes.io/component=worker --tail=50
 
-{{- if or (contains "TO_FILL" .Values.image.repository) (contains "TO_FILL" .Values.gateway.parentRefs | toYaml) (contains "TO_FILL" .Values.externalSecret.secretStoreRef.name) }}
+{{- if or (contains "TO_FILL" .Values.image.repository) (contains "TO_FILL" (.Values.gateway.parentRefs | toYaml)) (contains "TO_FILL" .Values.externalSecret.secretStoreRef.name) }}
 
 ⚠️  Des placeholders <TO_FILL:...> ne sont pas renseignés dans values.yaml.
     Ce déploiement ne démarrera PAS tant que tu n'as pas substitué ces
