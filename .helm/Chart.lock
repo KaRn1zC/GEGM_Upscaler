@@ -1,0 +1,6 @@
+dependencies:
+- name: keydb
+  repository: https://vixns.github.io/keydb-helm-chart/
+  version: 1.0.7
+digest: sha256:76e5298cd98e548f55be9ba434a11827ef902672092484e4539ffcbb6af4d86c
+generated: "2026-06-09T16:00:19.292392468Z"
