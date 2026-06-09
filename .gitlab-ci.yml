@@ -250,7 +250,7 @@ deploy-bump-tag:
   script:
     - git clone --depth 1 "https://oauth2:${GITLAB_TOKEN}@${ARGOCD_REPO}" argocd
     - cd argocd
-    - NAME="$CI_REGISTRY_IMAGE" TAG="$CI_COMMIT_TAG" yq -i '.image.name = strenv(NAME) | .image.tag = strenv(TAG)' prod.yaml
+    - NAME="$CI_REGISTRY_IMAGE" TAG="$CI_COMMIT_TAG" yq -i '.image.repository = strenv(NAME) | .image.tag = strenv(TAG)' prod.yaml
     - echo "prod.yaml après bump :" && cat prod.yaml
     - git config user.email "ci@gegmgroup.com"
     - git config user.name "GitLab CI — gegm-upscaler"
