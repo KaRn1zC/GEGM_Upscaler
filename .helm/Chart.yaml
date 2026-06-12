@@ -39,3 +39,6 @@ dependencies:
   - name: keydb
     version: 1.0.7
     repository: https://vixns.github.io/keydb-helm-chart/
+    # Sans `condition`, le flag keydb.enabled des values est inerte et le
+    # sous-chart est déployé inconditionnellement.
+    condition: keydb.enabled

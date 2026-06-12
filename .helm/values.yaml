@@ -18,6 +18,11 @@
 global:
   environment: production
 
+# Suffixe d'environnement consommé par templates/database.yaml (CR CNPG
+# Database → base/owner `upscaler_<env>`). Sans cette valeur, le CR rend
+# un nom DNS invalide (`upscaler-`) et la sync ArgoCD échoue.
+env: prod
+
 # ─── Image ──────────────────────────────────────────────────────────────────
 image:
   # Registry GitLab GEGM — path exact à récupérer de l'infra
@@ -88,6 +93,10 @@ config:
   # - `tauri://localhost` (macOS) et `https://tauri.localhost` (Windows/Linux)
   #   pour permettre au .dmg/.msi/.AppImage installé de tirer sur l'API distante
   CORS_ORIGINS: '["https://upscaler.gegmgroup.com","tauri://localhost","https://tauri.localhost"]'
+
+  # Emails autorisés sur /api/admin/* (liste JSON). Vide = aucun admin :
+  # tous les endpoints admin répondent 403. À renseigner côté GEGM.
+  ADMIN_EMAILS: '[]'
 
   # Backends (voir backend/app/core/config.py)
   STORAGE_BACKEND: "s3"
@@ -164,7 +173,9 @@ keydb:
     enabled: false
   configExtraArgs:
     - client-output-buffer-limit: replica 512mb 0 0
-    - multi-master-no-forward: yes
+    # Quoté impérativement : `yes` nu est parsé en booléen YAML et rendu
+    # `true` dans server.sh — valeur que keydb-server refuse au démarrage.
+    - multi-master-no-forward: "yes"
     - maxmemory: 400mb
     - maxmemory-policy: volatile-lru
   topologySpreadConstraints:

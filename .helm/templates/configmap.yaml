@@ -4,6 +4,10 @@ metadata:
   name: {{ include "gegm-upscaler.configMapName" . }}
   labels:
     {{- include "gegm-upscaler.labels" . | nindent 4 }}
+  annotations:
+    # Appliqué avant le Job de migration (wave -1) qui le consomme via
+    # envFrom — sans ça, install fraîche = CreateContainerConfigError.
+    argocd.argoproj.io/sync-wave: "-2"
 data:
   # Flags applicatifs et noms de backend (non-secret)
   APP_ENV: {{ .Values.config.APP_ENV | quote }}
@@ -13,6 +17,7 @@ data:
   AUTH_BACKEND: {{ .Values.config.AUTH_BACKEND | quote }}
   SECRETS_BACKEND: {{ .Values.config.SECRETS_BACKEND | quote }}
   UPSCALE_MODEL: {{ .Values.config.UPSCALE_MODEL | quote }}
+  ADMIN_EMAILS: {{ .Values.config.ADMIN_EMAILS | quote }}
 
   # Storage S3 (public — credentials dans le Secret)
   S3_BUCKET: {{ .Values.config.S3_BUCKET | quote }}
@@ -44,3 +49,12 @@ data:
   REDIS_HOST: {{ .Values.redis.host | quote }}
   REDIS_PORT: {{ .Values.redis.port | quote }}
   REDIS_DB: {{ .Values.redis.database | quote }}
+
+  {{- if .Values.config.OTEL_EXPORTER_OTLP_ENDPOINT }}
+  # OpenTelemetry — rendu seulement quand un collector est configuré
+  # (endpoint vide = OTel no-op côté app, inutile de polluer l'env).
+  OTEL_SERVICE_NAME: {{ .Values.config.OTEL_SERVICE_NAME | quote }}
+  OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.config.OTEL_EXPORTER_OTLP_ENDPOINT | quote }}
+  OTEL_EXPORTER_OTLP_INSECURE: {{ .Values.config.OTEL_EXPORTER_OTLP_INSECURE | quote }}
+  OTEL_TRACES_SAMPLER_RATIO: {{ .Values.config.OTEL_TRACES_SAMPLER_RATIO | quote }}
+  {{- end }}

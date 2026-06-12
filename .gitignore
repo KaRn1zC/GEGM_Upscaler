@@ -83,4 +83,6 @@ e2e-*.png
 vendor/
 # Modeles Core ML generes (lourds, gitignores)
 models/*.mlpackage/
-.helm/charts/keydb-1.0.7.tgz
+# Sous-charts Helm telecharges par `helm dependency build` (toutes versions,
+# pas seulement la courante — evite un commit accidentel au prochain bump)
+.helm/charts/*.tgz

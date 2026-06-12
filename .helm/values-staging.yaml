@@ -13,6 +13,20 @@
 global:
   environment: staging
 
+# Suffixe du CR CNPG Database (templates/database.yaml) → upscaler_staging.
+env: staging
+
+# ⚠️ Isolation prod/staging : sans ces overrides, staging hériterait de la
+# base `upscaler_prod` et des secrets Vault prod de values.yaml. Le rôle
+# Postgres `upscaler_staging` et le KV Vault staging restent à provisionner
+# côté infra avant tout déploiement staging.
+database:
+  name: "upscaler_staging"
+  user: "upscaler_staging"
+
+externalSecret:
+  remoteKey: "gegm-creative/staging/upscaler"
+
 config:
   APP_ENV: "staging"
   LOG_LEVEL: "DEBUG"

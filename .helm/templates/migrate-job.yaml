@@ -1,0 +1,80 @@
+# Job de migration de schéma — exécute `alembic upgrade head` à chaque sync
+# ArgoCD, entre la création de la base (CR CNPG Database, wave -2) et le
+# démarrage des Deployments (wave 0). C'est lui qui crée/actualise les tables :
+# l'app n'exécute aucune migration au démarrage (CMD = uvicorn).
+#
+# Ordonnancement (phase Sync, hooks et ressources entrelacés par wave) :
+#   wave -2 : Database CNPG, KeyDB, ConfigMap, ExternalSecret (→ Secret)
+#   wave -1 : ce Job (consomme ConfigMap + Secret via envFrom)
+#   wave  0 : api / worker / beat
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "gegm-upscaler.fullname" . }}-migrate
+  labels:
+    {{- include "gegm-upscaler.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    # Un Job est immuable : l'ancien est supprimé et recréé à chaque sync
+    # (et ses logs restent consultables jusqu'au sync suivant).
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  # L'opérateur CNPG peut provisionner la base APRÈS l'apply du CR Database
+  # (pas de health check ArgoCD sur ce CRD) : on retry le temps qu'elle
+  # apparaisse, avec un plafond dur pour ne pas bloquer le sync indéfiniment.
+  backoffLimit: 4
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        {{- include "gegm-upscaler.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: migrate
+    spec:
+      restartPolicy: OnFailure
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "gegm-upscaler.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: migrate
+          image: {{ include "gegm-upscaler.image" . }}
+          # Always (et non .Values.image.pullPolicy) : si le tag d'image est
+          # réécrit (tag mutable type `prod`), on ne migre jamais avec une
+          # image périmée du cache du nœud.
+          imagePullPolicy: Always
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          # alembic.ini vit dans /app (script_location=backend/alembic).
+          workingDir: /app
+          command: ["alembic", "upgrade", "head"]
+          envFrom:
+            - configMapRef:
+                name: {{ include "gegm-upscaler.configMapName" . }}
+            {{- if .Values.externalSecret.enabled }}
+            - secretRef:
+                name: {{ include "gegm-upscaler.secretName" . }}
+            {{- end }}
+          env:
+            # Même construction que dans les Deployments : composantes DB_*
+            # de la ConfigMap + DB_PASSWORD du Secret, résolues par K8s.
+            - name: DATABASE_URL
+              value: "postgresql+asyncpg://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          volumeMounts:
+            # readOnlyRootFilesystem=true → /tmp écrivable requis.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

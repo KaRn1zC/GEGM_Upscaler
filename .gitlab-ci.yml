@@ -236,8 +236,8 @@ backend-image-scan:
 
 # ═══════════════════════ Bump GitOps (ArgoCD) ══════════════════════════
 # Dernier maillon CI → déploiement. Après build + scan OK, met à jour
-# `image.name` + `image.tag` dans le dépôt GitOps `gegm-upscaler-argocd`
-# (fichier prod.yaml) : name = chemin complet de l'image poussée
+# `image.repository` + `image.tag` dans le dépôt GitOps `gegm-upscaler-argocd`
+# (fichier prod.yaml) : repository = chemin complet de l'image poussée
 # (`$CI_REGISTRY_IMAGE`), tag = `$CI_COMMIT_TAG`. ArgoCD détecte le commit et
 # synchronise le cluster (Application multi-sources : chart `.helm/` du repo
 # applicatif + prod.yaml). Aucun helm/kubectl ici.
