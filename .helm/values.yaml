@@ -170,14 +170,14 @@ keydb:
       argocd.argoproj.io/sync-wave: "-2"
   imageTag: latest
   persistentVolume:
-    enabled: false
+    enabled: true
   configExtraArgs:
     - client-output-buffer-limit: replica 512mb 0 0
     # Quoté impérativement : `yes` nu est parsé en booléen YAML et rendu
     # `true` dans server.sh — valeur que keydb-server refuse au démarrage.
     - multi-master-no-forward: "yes"
     - maxmemory: 400mb
-    - maxmemory-policy: volatile-lru
+    - maxmemory-policy: allkeys-lru
   topologySpreadConstraints:
    - maxSkew: 1
      topologyKey: "topology.kubernetes.io/zone"
