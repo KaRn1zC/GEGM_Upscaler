@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { MAX_FILE_SIZE_MB } from "@/lib/constants";
 import { DropZone } from "./DropZone";
 
 // jsdom ne fournit pas URL.createObjectURL — on le stub avant chaque test.
@@ -122,8 +123,8 @@ describe("DropZone", () => {
 
   it("should show max file size in the placeholder", () => {
     const { container } = render(<DropZone onFileAccepted={vi.fn()} />);
-    // Default MAX_FILE_SIZE_MB = 200. Le texte est désormais
-    // formulé "max 200 Mo" dans la nouvelle charte.
-    expect(container.textContent).toMatch(/max\s*200\s*Mo/);
+    // Le placeholder doit refléter la constante partagée — pas une valeur
+    // en dur qui dériverait de la limite réelle.
+    expect(container.textContent).toMatch(new RegExp(`max\\s*${MAX_FILE_SIZE_MB}\\s*Mo`));
   });
 });

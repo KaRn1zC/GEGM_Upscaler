@@ -20,7 +20,10 @@ export const ACCEPTED_IMAGE_TYPES: Record<string, string[]> = {
   "image/tiff": [".tiff", ".tif"],
 };
 
-export const MAX_FILE_SIZE_MB = 200;
+// Aligné sur la limite backend MAX_UPLOAD_SIZE_MB (300 Mo par défaut) —
+// couvre les TIFF de photo shoot plein format. Les deux valeurs doivent
+// évoluer ensemble, sinon le backend renvoie un 413 que l'UI n'anticipe pas.
+export const MAX_FILE_SIZE_MB = 300;
 export const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 
 export const SCALE_FACTORS = [2, 4] as const;

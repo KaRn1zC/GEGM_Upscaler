@@ -1,11 +1,12 @@
 import { useCallback, useImperativeHandle, useState, type Ref } from "react";
 import { m, AnimatePresence, Reorder } from "motion/react";
-import { useDropzone } from "react-dropzone";
+import { useDropzone, type FileRejection } from "react-dropzone";
 import { Upload, X, Play, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   ACCEPTED_IMAGE_TYPES,
   MAX_FILE_SIZE_BYTES,
+  MAX_FILE_SIZE_MB,
   SCALE_FACTORS,
   type ScaleFactor,
 } from "@/lib/constants";
@@ -37,13 +38,29 @@ export function BatchPanel({ onSubmit, isSubmitting, ref }: BatchPanelProps) {
   const [queue, setQueue] = useState<QueuedFile[]>([]);
   const [scaleFactor, setScaleFactor] = useState<ScaleFactor>(4);
 
+  const [rejection, setRejection] = useState<string | null>(null);
+
   const onDrop = useCallback((accepted: File[]) => {
+    if (accepted.length > 0) setRejection(null);
     const newItems: QueuedFile[] = accepted.map((file) => ({
       id: `${file.name}-${file.size}-${Date.now()}-${Math.random()}`,
       file,
       previewUrl: URL.createObjectURL(file),
     }));
     setQueue((q) => [...q, ...newItems]);
+  }, []);
+
+  // Sans ce callback, un fichier trop gros ou au mauvais format disparaît
+  // en silence du drop — l'utilisateur ne sait pas pourquoi il manque.
+  const onDropRejected = useCallback((rejections: FileRejection[]) => {
+    const tooLarge = rejections.filter((r) =>
+      r.errors.some((e) => e.code === "file-too-large"),
+    ).length;
+    setRejection(
+      tooLarge > 0
+        ? `${tooLarge} fichier(s) ignoré(s) : trop volumineux (max ${MAX_FILE_SIZE_MB} Mo)`
+        : `${rejections.length} fichier(s) ignoré(s) : format non supporté`,
+    );
   }, []);
 
   // Expose une API impérative (`addFiles`) au parent — alimente la même
@@ -73,6 +90,7 @@ export function BatchPanel({ onSubmit, isSubmitting, ref }: BatchPanelProps) {
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
+    onDropRejected,
     accept: ACCEPTED_IMAGE_TYPES,
     maxSize: MAX_FILE_SIZE_BYTES,
     multiple: true,
@@ -142,8 +160,14 @@ export function BatchPanel({ onSubmit, isSubmitting, ref }: BatchPanelProps) {
                 : "Glisser plusieurs images"}
             </p>
             <p className="mt-2.5 text-[10px] uppercase tracking-[0.22em] text-muted-foreground font-sans text-center">
-              Sélection multiple · Traitement parallèle
+              Sélection multiple · Traitement parallèle · max {MAX_FILE_SIZE_MB} Mo/image
             </p>
+
+            {rejection && (
+              <p className="mt-3 text-xs text-destructive font-sans text-center" role="alert">
+                {rejection}
+              </p>
+            )}
           </div>
         </div>
       </m.div>

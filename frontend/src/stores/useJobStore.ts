@@ -58,27 +58,43 @@ export const useJobStore = create<JobStore>((set) => ({
   },
 
   submitBatch: async (files, scaleFactor, preferLocal) => {
-    // Upload + création de job en parallèle pour chaque fichier.
-    // On capture les erreurs individuellement pour que l'échec d'un
-    // fichier ne bloque pas les autres.
+    // Uploads en parallèle BORNÉ : un shooting de 200 photos ne doit pas
+    // ouvrir 200 connexions simultanées (saturation bande passante +
+    // rafale sur l'API). Les erreurs restent capturées individuellement
+    // pour que l'échec d'un fichier ne bloque pas les autres.
+    const CONCURRENT_UPLOADS = 4;
     const newJobs: JobResponse[] = [];
-    const results = await Promise.all(
-      files.map(async (file): Promise<BatchItemResult> => {
-        try {
-          const uploaded = await uploadImage(file);
-          const job = await createJob({
-            input_key: uploaded.key,
-            scale_factor: scaleFactor,
-            prefer_local: preferLocal,
-          });
-          newJobs.push(job);
-          return { file, jobId: job.id, error: null };
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          return { file, jobId: null, error: msg };
+    const results: BatchItemResult[] = new Array<BatchItemResult>(files.length);
+
+    const processOne = async (file: File): Promise<BatchItemResult> => {
+      try {
+        const uploaded = await uploadImage(file);
+        const job = await createJob({
+          input_key: uploaded.key,
+          scale_factor: scaleFactor,
+          prefer_local: preferLocal,
+        });
+        newJobs.push(job);
+        return { file, jobId: job.id, error: null };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return { file, jobId: null, error: msg };
+      }
+    };
+
+    // Pool maison : N workers piochent dans la liste — l'incrément est
+    // sûr en JS mono-thread, inutile d'ajouter une dépendance type p-limit.
+    let next = 0;
+    const workers = Array.from(
+      { length: Math.min(CONCURRENT_UPLOADS, files.length) },
+      async () => {
+        while (next < files.length) {
+          const index = next++;
+          results[index] = await processOne(files[index]);
         }
-      }),
+      },
     );
+    await Promise.all(workers);
 
     set((s) => ({ jobs: [...newJobs, ...s.jobs] }));
 

@@ -1,6 +1,6 @@
 import { useCallback, useImperativeHandle, useState, type Ref } from "react";
 import { m, AnimatePresence } from "motion/react";
-import { useDropzone } from "react-dropzone";
+import { useDropzone, type FileRejection } from "react-dropzone";
 import { Upload, X, ImageIcon, FolderOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -51,11 +51,13 @@ export function DropZone({
   ref,
 }: DropZoneProps) {
   const [preview, setPreview] = useState<PreviewState | null>(null);
+  const [rejection, setRejection] = useState<string | null>(null);
 
   const onDrop = useCallback(
     (accepted: File[]) => {
       const file = accepted[0];
       if (!file) return;
+      setRejection(null);
 
       const url = URL.createObjectURL(file);
       const size =
@@ -84,8 +86,21 @@ export function DropZone({
     }
   }, [preview, onFileCleared]);
 
+  // Sans ce callback, react-dropzone rejette en silence (fichier trop gros
+  // ou mauvais format) et l'utilisateur ne comprend pas pourquoi rien ne
+  // se passe.
+  const onDropRejected = useCallback((rejections: FileRejection[]) => {
+    const code = rejections[0]?.errors[0]?.code;
+    setRejection(
+      code === "file-too-large"
+        ? `Fichier trop volumineux (max ${MAX_FILE_SIZE_MB} Mo)`
+        : "Format non supporté — PNG, JPEG, WebP ou TIFF",
+    );
+  }, []);
+
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
+    onDropRejected,
     accept: ACCEPTED_IMAGE_TYPES,
     maxSize: MAX_FILE_SIZE_BYTES,
     multiple: false,
@@ -252,6 +267,12 @@ export function DropZone({
               <p className="mt-3 text-[10px] uppercase tracking-[0.22em] text-muted-foreground font-sans">
                 PNG · JPEG · WebP · TIFF · max {MAX_FILE_SIZE_MB} Mo
               </p>
+
+              {rejection && (
+                <p className="mt-3 text-xs text-destructive font-sans" role="alert">
+                  {rejection}
+                </p>
+              )}
 
               {showBrowseButton && (
                 <m.button

@@ -6,7 +6,10 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist', 'coverage']),
+  // src-tauri/target : artefacts de build Rust locaux (JS minifié généré
+  // par tauri-codegen) — jamais versionnés, mais le glob les attrape
+  // quand un build desktop a tourné sur la machine.
+  globalIgnores(['dist', 'coverage', 'src-tauri/target']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [
