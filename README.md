@@ -82,7 +82,7 @@ drag-drop Finder) ; la distribution desktop est **différée et optionnelle**
 
 - **Upload drag-and-drop** (HTML5 + natif Tauri) avec preview et détection MP
 - **Upscale ×2 / ×4** via RunPod Serverless (routage scale → modèle côté backend)
-- **Traitement batch** (file d'attente parallèle, jusqu'à 10 images)
+- **Traitement batch** (file d'attente parallèle, limite par taille de fichier — 200 Mo/image)
 - **Progression live** (SSE backend → UI, barres de progression liquides)
 - **Galerie** : comparaison avant/après avec slider, zoom panzoom
 - **Historique** : tous les jobs (completed/failed/cancelled), recherche, filtres
@@ -110,7 +110,7 @@ drag-drop Finder) ; la distribution desktop est **différée et optionnelle**
 | Modèles SR | DRCT-L (`ming053l/DRCT`), fallback HAT-L |
 | Déploiement | **Kubernetes** + **Helm 3** chart, Envoy Gateway, External Secrets Operator |
 | Monitoring | **OpenTelemetry** + **VictoriaMetrics** (ou Prometheus), **Grafana**, **Loki**, **Sentry** self-hosted |
-| CI/CD | **GitLab CI** (`.gitlab-ci.yml` — stages `lint-test` : backend, frontend, e2e, helm ; stage `build` : image backend Kaniko + scan Trivy sur tag `v*.*.*`) |
+| CI/CD | **GitLab CI** (`.gitlab-ci.yml` — `lint-test` : backend, frontend, e2e, helm ; `build` : image Kaniko + scan Trivy ; `deploy` : bump GitOps vers ArgoCD. Release sur tag `prod` ou `v*.*.*`) |
 
 ---
 
@@ -122,11 +122,11 @@ Utilisateurs GEGM
   [optionnel/différé] ──▶ Desktop .dmg macOS (Tauri) — si runner GitLab macOS provisionné
               │
               ▼
-        Envoy Gateway (HTTPRoute + TLS cert-manager)
+        Envoy Gateway (HTTPRoute — TLS géré sur la Gateway infra)
               │
               ▼
         Pods API FastAPI ──┬──▶ CNPG Postgres (jobs, users, audit_log)
-                           ├──▶ KeyDB (broker Celery + SSE pub/sub)
+                           ├──▶ KeyDB (broker Celery + SSE — sous-chart du chart Helm)
                            ├──▶ S3 OVH (inputs + outputs)
                            └──▶ Workers Celery ──▶ RunPod Serverless (GPU)
                                                         │
@@ -186,8 +186,8 @@ Le projet utilise **deux images Docker distinctes** et complémentaires :
 
 | Image | Registry | Rôle | Tournée sur | Version |
 |---|---|---|---|:-:|
-| **`gegm-upscaler-backend`** | Registry GitLab GEGM | API FastAPI + SPA React + Celery | Mac (dev/prod local) ou K8s GEGM | tag git `v*.*.*` |
-| **`gegm-upscaler-worker`** | Registry GitLab GEGM (`/worker`) | Inférence GPU DRCT-L / HAT-L, handler RunPod | RunPod Serverless | **v2.0** |
+| **Backend** — `registry.kangourouge.com/gegm-creative/ai/gegm-upscaler` (`gegm-upscaler-backend` en build compose local) | Registry GitLab GEGM | API FastAPI + SPA React + Celery | Mac (dev/prod local) ou K8s GEGM | tags `:<sha-court>` (déployé) + `:<tag-git>` + `:latest` |
+| **Worker** — `…/gegm-upscaler/worker` | Registry GitLab GEGM | Inférence GPU DRCT-L / HAT-L, handler RunPod | RunPod Serverless | **v2.0** |
 
 **Flow à chaque upscale** (identique en dev / prod-local / prod-k8s) :
 
@@ -205,10 +205,14 @@ rebuilds le worker que si tu modifies `runpod-worker/handler.py`,
 
 ### Build & release de l'image backend
 
-Un tag git `v*.*.*` déclenche le job `backend-image` du `.gitlab-ci.yml`
-(build Kaniko + push sur le registry GitLab + scan Trivy). Le déploiement
-est ensuite assuré par **ArgoCD** (GitOps) qui synchronise le cluster depuis
-le dépôt de manifestes — aucun `helm upgrade` ni `kubectl` manuel.
+Un tag git `prod` ou `v*.*.*` déclenche la chaîne du `.gitlab-ci.yml` :
+`backend-image` (build Kaniko, push triple tag `:sha`/`:tag`/`:latest`) →
+`backend-image-scan` (Trivy, **bloquant** sur CVE CRITICAL/HIGH corrigeable) →
+`deploy-bump-tag` (commit du SHA court dans le `prod.yaml` du dépôt GitOps
+`gegm-upscaler-argocd`). **ArgoCD** détecte le commit et synchronise le
+cluster — aucun `helm upgrade` ni `kubectl` manuel. Le SHA court comme tag
+d'image garantit un rollout à chaque release, même en réutilisant le tag
+git `prod`.
 
 ### Build & release de l'image worker RunPod
 
@@ -282,9 +286,9 @@ cd frontend && npm run dev
   lancé depuis `backend/`, il ne trouve pas le `.env` racine sans ça.
 - `LOCAL_STORAGE_PATH=/tmp/...` → la valeur par défaut `/data` n'est pas
   writable sans sudo sur macOS/Linux.
-- `COREML_MODEL_DIR=/tmp/...` → idem, inutile tant que les `.mlpackage`
-  Core ML ne sont pas convertis (code prêt, conversion bloquée upstream
-  sur `coremltools 10+`).
+- `COREML_MODEL_DIR=/tmp/...` → optionnel (défaut `models`, relatif) ;
+  inutile tant que les `.mlpackage` Core ML ne sont pas convertis (code
+  prêt, conversion bloquée upstream sur `coremltools 10+`).
 
 ### Arrêt
 
@@ -414,20 +418,26 @@ Pour tester ces couches, il faut passer en § 9.
 Déploiement réel sur `https://upscaler.gegmgroup.com` via Kubernetes + le
 chart Helm `.helm/`, en **GitOps via ArgoCD** :
 
-1. Un tag git `v*.*.*` → la CI GitLab (`backend-image`) build et push l'image
-   sur le registry GitLab GEGM, puis commit le nouveau tag dans le dépôt GitOps
-   dédié (`gegm-upscaler-argocd`).
+1. Un tag git `prod` ou `v*.*.*` → la CI GitLab build l'image (Kaniko), la
+   scanne (Trivy, bloquant), puis commit le **SHA court** de l'image dans le
+   `prod.yaml` du dépôt GitOps dédié (`gegm-upscaler-argocd`).
 2. **ArgoCD** (Application multi-sources : chart `.helm/` du dépôt applicatif +
-   tag image du dépôt `-argocd`) synchronise le cluster — aucun `helm upgrade`
-   ni `kubectl` manuel.
+   overlay `prod.yaml` du dépôt `-argocd`) synchronise le cluster — aucun
+   `helm upgrade` ni `kubectl` manuel.
+3. Pendant la sync, un **Job de migration** (`alembic upgrade head`, hook
+   ArgoCD en sync-wave -1) crée/actualise le schéma entre la création de la
+   base (CR CNPG `Database`, wave -2) et le rollout des Deployments (wave 0).
 
-Le chart consomme les services managés fournis par l'infra GEGM (CNPG
-Postgres, KeyDB, Vault via External Secrets Operator, Envoy Gateway +
-cert-manager, RunPod, Sentry self-hosted). Les valeurs à renseigner sont
-marquées `<TO_FILL:...>` dans `.helm/values.yaml` ; les secrets
-proviennent de Vault (bloc `externalSecret` du chart). Les procédures
-d'exploitation détaillées (première install, rollback, restore CNPG,
-playbooks d'incident) sont maintenues en interne par l'équipe GEGM.
+Le chart embarque **KeyDB en sous-chart** (broker Celery in-cluster,
+persistence + `noeviction`) et consomme les services managés de l'infra GEGM :
+Postgres partagé CNPG (`pgpool`), Vault via External Secrets Operator (un
+objet KV unique, clés = variables d'env), Envoy Gateway (TLS porté par la
+Gateway), RunPod, Sentry self-hosted. Les placeholders `<TO_FILL:...>` restants de
+`.helm/values.yaml` sont remplis hors repo : pull secret, ClusterSecretStore
+et Gateway **injectés par le CR Application ArgoCD** côté infra ;
+`image.repository`/`image.tag` **écrasés par le bump GitOps** (`prod.yaml`
+du dépôt `-argocd`). Les procédures d'exploitation détaillées (rollback,
+restore, playbooks d'incident) sont maintenues en interne par l'équipe GEGM.
 
 ---
 
@@ -487,9 +497,12 @@ npm run test:e2e            # 14 tests Playwright
 ### Helm chart
 
 ```bash
+helm repo add keydb https://vixns.github.io/keydb-helm-chart/
+helm dependency build .helm     # télécharge le sous-chart KeyDB
 helm lint .helm
-helm template gegm-upscaler .helm -f values-prod.local.yaml \
-  | kubectl --dry-run=server apply -f -
+helm template gegm-upscaler .helm --namespace gegm-upscaler            # rendu prod
+helm template gegm-upscaler .helm --namespace gegm-upscaler-staging \
+  -f .helm/values-staging.yaml                                         # rendu staging
 ```
 
 ### CI GitLab
@@ -499,11 +512,13 @@ La CI tourne via `.gitlab-ci.yml` sur le dépôt canonique
 
 | Stage | Job | Trigger | Contenu |
 |---|---|---|---|
-| `lint-test` | `backend-lint-test` | tout push / MR | ruff + ruff format + mypy + alembic upgrade + pytest (services Postgres + Redis) |
-| `lint-test` | `frontend-lint-test` | tout push / MR | tsc + eslint + vitest + build Vite |
-| `lint-test` | `e2e` | tout push / MR | 14 tests Playwright |
-| `lint-test` | `helm-lint` | tout push / MR | `helm lint` + `helm template` |
-| `build` | `backend-image` | tag `v*.*.*` | Build Kaniko → `registry.kangourouge.com/gegm-creative/ai/gegm-upscaler:<tag>` + scan Trivy |
+| `lint-test` | `backend` | push / MR (changements backend) + tags release | ruff + ruff format + mypy + alembic upgrade + pytest (services Postgres + Redis) |
+| `lint-test` | `frontend` | push / MR (changements frontend) + tags release | tsc + eslint + vitest + build Vite |
+| `lint-test` | `e2e` | push / MR (changements frontend) + tags release | 14 tests Playwright |
+| `lint-test` | `helm` | push / MR (changements `.helm/`) + tags release | `helm dependency build` + lint + template prod/staging + validation YAML |
+| `build` | `backend-image` | tag `prod` ou `v*.*.*` | Build Kaniko → `registry.kangourouge.com/gegm-creative/ai/gegm-upscaler` (`:sha`, `:tag`, `:latest`) |
+| `build` | `backend-image-scan` | tag `prod` ou `v*.*.*` | Trivy sur la réf SHA déployée — **bloquant** (CVE CRITICAL/HIGH corrigeable) |
+| `deploy` | `deploy-bump-tag` | tag `prod` ou `v*.*.*`, après scan OK | Commit du SHA court dans `prod.yaml` du dépôt `-argocd` → sync ArgoCD |
 
 Le dépôt GitHub `KaRn1zC/GEGM_Upscaler` est un **miroir vitrine** — ne pas
 l'utiliser comme source de vérité pour les procédures CI/CD.
@@ -517,7 +532,7 @@ l'utiliser comme source de vérité pour les procédures CI/CD.
 | [`.env.example`](./.env.example) | Variables d'environnement backend documentées |
 | [`.helm/values.yaml`](./.helm/values.yaml) | Configuration Helm commentée en ligne (placeholders `<TO_FILL:...>`) |
 | `backend/app/core/*/interface.py` | Les ABC Storage / Auth / Secrets / GPU — contrats d'abstraction |
-| `.gitlab-ci.yml` | Pipeline CI/CD (lint-test + build image backend) |
+| `.gitlab-ci.yml` | Pipeline CI/CD (lint-test + build/scan image + bump GitOps ArgoCD) |
 
 La documentation d'exploitation détaillée (architecture, déploiement, runbook
 d'incident) est maintenue **en interne par l'équipe GEGM**.
