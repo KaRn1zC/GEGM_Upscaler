@@ -86,7 +86,10 @@ RUN npm run build
 FROM python:3.12-slim-bookworm AS runtime
 
 # Deps runtime seulement (pas de build-essential, pas de Node).
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# L'upgrade absorbe les patches sécurité Debian publiés entre deux refresh
+# de l'image de base (CVE gnutls/openssl bloquantes au scan Trivy sinon).
+RUN apt-get update && apt-get upgrade -y --no-install-recommends \
+    && apt-get install -y --no-install-recommends \
     libpq5 \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd -g 1000 app \
