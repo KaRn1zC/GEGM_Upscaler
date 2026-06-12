@@ -31,6 +31,7 @@ En cas d'erreur, retourne ``{"error": "<message>"}``.
 """
 
 import base64
+import contextlib
 import io
 import os
 import time
@@ -93,6 +94,19 @@ _FORMAT_MAX_SIDE: dict[str, int] = {
 # Borne du téléchargement d'input par URL — protège la RAM du container
 # contre une URL pathologique avant même la validation mégapixels.
 MAX_INPUT_DOWNLOAD_BYTES = int(os.environ.get("MAX_INPUT_DOWNLOAD_BYTES", str(2 * 1024**3)))
+
+# Autocast fp16 à l'inférence : ~2x plus rapide sur Ampere+ et VRAM réduite,
+# sans perte visible à l'échelle uint8 (la résolution fp16 reste très
+# au-dessus du pas de quantification 1/255). Désactivable si un artefact
+# de précision était observé sur un modèle.
+AUTOCAST_FP16 = os.environ.get("AUTOCAST_FP16", "true").lower() in ("1", "true", "yes")
+
+
+def _autocast_ctx() -> contextlib.AbstractContextManager[Any]:
+    """Contexte autocast fp16 si activé et sur CUDA, no-op sinon."""
+    if AUTOCAST_FP16 and DEVICE == "cuda":
+        return torch.autocast("cuda", dtype=torch.float16)
+    return contextlib.nullcontext()
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -317,7 +331,9 @@ def load_model(model_name: str, scale_factor: int) -> torch.nn.Module:
     if DEVICE == "cuda":
         logger.info("Warm-up cuDNN en cours (JIT compilation première tuile)...")
         t0 = time.time()
-        with torch.no_grad():
+        # Même contexte autocast que l'inférence réelle : les kernels JIT
+        # compilés ici doivent être ceux du dtype effectivement utilisé.
+        with torch.no_grad(), _autocast_ctx():
             dummy = torch.randn(1, 3, TILE_SIZE, TILE_SIZE, device=DEVICE)
             _ = model(dummy)
             torch.cuda.synchronize()
@@ -384,8 +400,8 @@ def _pad_image_to_tile_grid(
 
 
 def _postprocess_tile(tensor: torch.Tensor) -> np.ndarray:
-    """Convertit un tenseur NCHW float32 en array HWC uint8."""
-    out = tensor.squeeze(0).permute(1, 2, 0).clamp(0, 1).cpu().numpy()
+    """Convertit un tenseur NCHW (float32 ou fp16 autocast) en HWC uint8."""
+    out = tensor.squeeze(0).permute(1, 2, 0).clamp(0, 1).float().cpu().numpy()
     return (out * 255.0).astype(np.uint8)
 
 
@@ -411,43 +427,57 @@ def _compute_tile_grid(
     return tiles
 
 
-def _merge_tiles(
-    tiles: list[tuple[tuple[int, int, int, int], np.ndarray]],
+def _accumulate_tile(
+    canvas: np.ndarray,
+    weights: np.ndarray,
+    tile: np.ndarray,
+    pos: tuple[int, int, int, int],
     width: int,
     height: int,
     overlap: int,
-) -> np.ndarray:
-    """Réassemble les tuiles avec blending linéaire aux bords."""
-    canvas = np.zeros((height, width, 3), dtype=np.float64)
-    weights = np.zeros((height, width), dtype=np.float64)
+) -> None:
+    """Fond une tuile upscalée dans le canvas avec blending linéaire aux bords.
 
-    for (x, y, tw, th), tile in tiles:
-        has_left = x > 0
-        has_top = y > 0
-        has_right = x + tw < width
-        has_bottom = y + th < height
+    Version incrémentale de l'ancien ``_merge_tiles`` : chaque tuile est
+    accumulée dès sa sortie d'inférence puis libérée — le pic RAM ne dépend
+    plus du nombre de tuiles (l'ancienne version gardait TOUTES les tuiles
+    upscalées en mémoire jusqu'au merge final).
 
-        mask = np.ones((th, tw), dtype=np.float64)
-        if overlap > 0:
-            ramp = np.linspace(0.0, 1.0, overlap, dtype=np.float64)
-            if has_left and overlap <= tw:
-                mask[:, :overlap] *= ramp[np.newaxis, :]
-            if has_right and overlap <= tw:
-                mask[:, -overlap:] *= ramp[np.newaxis, ::-1]
-            if has_top and overlap <= th:
-                mask[:overlap, :] *= ramp[:, np.newaxis]
-            if has_bottom and overlap <= th:
-                mask[-overlap:, :] *= ramp[::-1, np.newaxis]
+    Args:
+        canvas: Accumulateur HWC float32 (modifié en place).
+        weights: Somme des masques de blending par pixel (modifiée en place).
+        tile: Tuile upscalée HWC uint8.
+        pos: Position/taille ``(x, y, w, h)`` dans le repère de sortie.
+        width: Largeur totale du canvas.
+        height: Hauteur totale du canvas.
+        overlap: Chevauchement entre tuiles, dans le repère de sortie.
+    """
+    x, y, tw, th = pos
+    has_left = x > 0
+    has_top = y > 0
+    has_right = x + tw < width
+    has_bottom = y + th < height
 
-        ah, aw = tile.shape[:2]
-        mask = mask[:ah, :aw]
-        region = (slice(y, y + ah), slice(x, x + aw))
-        canvas[region] += tile.astype(np.float64) * mask[:, :, np.newaxis]
-        weights[region] += mask
+    # float32 : largement assez précis pour blender des valeurs 0-255,
+    # et moitié moins de RAM que float64 — c'était le poste dominant du
+    # pic mémoire sur les grandes images.
+    mask = np.ones((th, tw), dtype=np.float32)
+    if overlap > 0:
+        ramp = np.linspace(0.0, 1.0, overlap, dtype=np.float32)
+        if has_left and overlap <= tw:
+            mask[:, :overlap] *= ramp[np.newaxis, :]
+        if has_right and overlap <= tw:
+            mask[:, -overlap:] *= ramp[np.newaxis, ::-1]
+        if has_top and overlap <= th:
+            mask[:overlap, :] *= ramp[:, np.newaxis]
+        if has_bottom and overlap <= th:
+            mask[-overlap:, :] *= ramp[::-1, np.newaxis]
 
-    weights = np.maximum(weights, 1e-8)
-    canvas /= weights[:, :, np.newaxis]
-    return canvas.clip(0, 255).astype(np.uint8)
+    ah, aw = tile.shape[:2]
+    mask = mask[:ah, :aw]
+    region = (slice(y, y + ah), slice(x, x + aw))
+    canvas[region] += tile.astype(np.float32) * mask[:, :, np.newaxis]
+    weights[region] += mask
 
 
 def run_inference(
@@ -485,26 +515,35 @@ def run_inference(
         ph=padded_h,
     )
 
-    processed: list[tuple[tuple[int, int, int, int], np.ndarray]] = []
+    out_w = padded_w * scale_factor
+    out_h = padded_h * scale_factor
+    out_overlap = TILE_OVERLAP * scale_factor
+    canvas = np.zeros((out_h, out_w, 3), dtype=np.float32)
+    weights = np.zeros((out_h, out_w), dtype=np.float32)
 
     inference_start = time.time()
-    with torch.no_grad():
+    with torch.no_grad(), _autocast_ctx():
         for idx, (tx, ty, tw, th) in enumerate(grid, start=1):
             tile_np = img_padded[ty : ty + th, tx : tx + tw]
             tile_tensor = _preprocess_tile(tile_np)
             output_tensor = model(tile_tensor)
             output_np = _postprocess_tile(output_tensor)
 
-            processed.append(
+            # Accumulation immédiate dans le canvas — la tuile upscalée est
+            # libérée au tour suivant au lieu de s'empiler jusqu'au merge.
+            _accumulate_tile(
+                canvas,
+                weights,
+                output_np,
                 (
-                    (
-                        tx * scale_factor,
-                        ty * scale_factor,
-                        tw * scale_factor,
-                        th * scale_factor,
-                    ),
-                    output_np,
+                    tx * scale_factor,
+                    ty * scale_factor,
+                    tw * scale_factor,
+                    th * scale_factor,
                 ),
+                out_w,
+                out_h,
+                out_overlap,
             )
 
             # Log toutes les 5 tuiles + la dernière, pour voir le progrès
@@ -522,12 +561,13 @@ def run_inference(
                     eta=remaining,
                 )
 
-    merged = _merge_tiles(
-        processed,
-        width=padded_w * scale_factor,
-        height=padded_h * scale_factor,
-        overlap=TILE_OVERLAP * scale_factor,
-    )
+    # Normalisation et quantification in-place pour éviter les copies
+    # intermédiaires sur un canvas qui peut peser plusieurs Go.
+    np.maximum(weights, 1e-8, out=weights)
+    canvas /= weights[:, :, np.newaxis]
+    np.clip(canvas, 0, 255, out=canvas)
+    merged = canvas.astype(np.uint8)
+    del canvas, weights
 
     # Crop final aux dimensions d'origine (x scale_factor) : retire le padding
     # ajouté avant inférence. Les pixels réels n'ont jamais été altérés.

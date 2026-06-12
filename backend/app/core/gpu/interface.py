@@ -8,7 +8,7 @@ Implémentations concrètes :
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import ClassVar
+from typing import BinaryIO, ClassVar
 
 
 class GPUJobStatus(StrEnum):
@@ -135,18 +135,20 @@ class GPUBackend(ABC):
         """
 
     @abstractmethod
-    def get_output_data(self, job_id: str) -> bytes | None:
-        """Récupère les bytes de l'image résultat d'un job terminé.
+    def get_output_data(self, job_id: str) -> bytes | BinaryIO | None:
+        """Récupère le résultat d'un job terminé (bytes ou flux binaire).
 
-        Chaque backend stocke le résultat en mémoire après complétion
-        (Core ML dans un dict interne, RunPod dans un cache après
-        décodage du payload base64). Les bytes doivent rester disponibles
-        au moins jusqu'à ce que le worker Celery les ait uploadés dans
-        le storage.
+        Les petits résultats restent en mémoire (Core ML, mode inline
+        RunPod) ; les gros sont matérialisés sur disque et retournés en
+        flux ouvert pour être streamés vers le storage sans pic RAM.
+        L'appelant ferme le flux après usage ; le fichier sous-jacent est
+        nettoyé par ``close()``. Le résultat doit rester disponible au
+        moins jusqu'à l'upload dans le storage.
 
         Args:
             job_id: Identifiant retourné par ``submit_job``.
 
         Returns:
-            Bytes de l'image upscalée, ou ``None`` si indisponible.
+            Bytes ou flux binaire de l'image upscalée, ou ``None`` si
+            indisponible.
         """

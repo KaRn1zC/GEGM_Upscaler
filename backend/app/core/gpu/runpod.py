@@ -19,7 +19,10 @@ d'entrée/sortie défini dans ``runpod-worker/handler.py``.
 from __future__ import annotations
 
 import base64
-from typing import TYPE_CHECKING
+import contextlib
+import os
+import tempfile
+from typing import TYPE_CHECKING, BinaryIO
 from urllib.parse import urlparse
 
 import httpx
@@ -93,7 +96,11 @@ class RunPodBackend(GPUBackend):
             headers={"Authorization": f"Bearer {api_key}"},
             timeout=_REQUEST_TIMEOUT,
         )
+        # Petits outputs (mode inline) : bytes en mémoire. Gros outputs
+        # (mode S3) : fichier temporaire sur disque, streamé vers le
+        # storage sans jamais matérialiser l'image en RAM.
         self._output_cache: dict[str, bytes] = {}
+        self._output_files: dict[str, str] = {}
 
         # Config S3 pour le download des outputs volumineux. Si au moins
         # une variable clef manque, on fallback sur l'inline uniquement.
@@ -226,7 +233,7 @@ class RunPodBackend(GPUBackend):
             image_b64 = output.get("image")
             if output_url:
                 try:
-                    self._output_cache[job_id] = await self._fetch_s3_url(output_url)
+                    self._output_files[job_id] = await self._download_s3_to_file(output_url)
                     output_key = job_id
                 except Exception as exc:
                     logger.error(
@@ -266,22 +273,24 @@ class RunPodBackend(GPUBackend):
             error=error,
         )
 
-    def get_output_data(self, job_id: str) -> bytes | None:
-        """Récupère les bytes du résultat d'un job terminé.
+    def get_output_data(self, job_id: str) -> bytes | BinaryIO | None:
+        """Récupère le résultat d'un job terminé.
 
-        Les bytes sont mis en cache lors du dernier ``get_job_status``
-        retournant COMPLETED. Le cache est volatil : à la fin du worker
-        Celery, il est perdu (mais à ce moment le fichier a déjà été
-        uploadé dans le storage).
+        Mode inline : bytes décodés du base64, sortis du cache (pop — un
+        seul consommateur, libère la RAM au plus tôt). Mode S3 : flux
+        ouvert sur le fichier temporaire téléchargé, à streamer vers le
+        storage — l'image ne transite jamais entière en RAM. Le fichier
+        sous-jacent est supprimé par ``close()``.
 
         Args:
             job_id: Identifiant du job RunPod.
 
         Returns:
-            Bytes de l'image upscalée, ou ``None`` si non disponible.
+            Bytes ou flux binaire de l'image upscalée, ou ``None``.
         """
-        # pop : un seul consommateur (le pipeline) — libérer la référence
-        # du cache immédiatement réduit le pic RAM sur les gros outputs.
+        path = self._output_files.get(job_id)
+        if path is not None:
+            return open(path, "rb")
         return self._output_cache.pop(job_id, None)
 
     async def cancel_job(self, job_id: str) -> None:
@@ -300,21 +309,27 @@ class RunPodBackend(GPUBackend):
             )
 
     async def close(self) -> None:
-        """Ferme le client HTTP et libère les connexions."""
+        """Ferme le client HTTP et nettoie les fichiers temporaires d'output."""
         await self._client.aclose()
+        for path in self._output_files.values():
+            with contextlib.suppress(OSError):
+                os.unlink(path)
+        self._output_files.clear()
 
-    async def _fetch_s3_url(self, url: str) -> bytes:
-        """Télécharge un objet depuis une URL S3 (``s3://bucket/key``).
+    async def _download_s3_to_file(self, url: str) -> str:
+        """Télécharge un objet S3 (``s3://bucket/key``) vers un fichier temporaire.
 
         Utilisé pour récupérer les outputs volumineux que le handler RunPod
-        a uploadés directement sur le bucket (bypass la limite de 20 MB
-        du payload ``/status``).
+        a uploadés directement sur le bucket (bypass la limite de 20 MB du
+        payload ``/status``). Le téléchargement est streamé par chunks vers
+        le disque (``/tmp`` du pod) : une image upscalée de plusieurs Go ne
+        passe jamais entière en RAM. Le fichier est supprimé par ``close()``.
 
         Args:
             url: URL au format ``s3://<bucket>/<key>``.
 
         Returns:
-            Bytes bruts de l'objet.
+            Chemin du fichier temporaire contenant l'objet.
 
         Raises:
             RuntimeError: Si la config S3 output est incomplète ou si
@@ -335,11 +350,16 @@ class RunPodBackend(GPUBackend):
         if not bucket or not key:
             raise RuntimeError(f"URL output mal formée : {url}")
 
-        async with self._s3_session.client("s3", endpoint_url=self._s3_endpoint_url) as s3:
-            response = await s3.get_object(Bucket=bucket, Key=key)
-            async with response["Body"] as stream:
-                data: bytes = await stream.read()
-                return data
+        fd, path = tempfile.mkstemp(prefix="runpod-output-", suffix=".bin")
+        try:
+            async with self._s3_session.client("s3", endpoint_url=self._s3_endpoint_url) as s3:
+                with os.fdopen(fd, "wb") as f:
+                    await s3.download_fileobj(bucket, key, f)
+        except Exception:
+            with contextlib.suppress(OSError):
+                os.unlink(path)
+            raise
+        return path
 
 
 def _estimate_progress(status: GPUJobStatus) -> float:

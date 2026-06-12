@@ -30,7 +30,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, BinaryIO
 
 from celery import chain
 from loguru import logger
@@ -276,13 +276,20 @@ async def _step_upscale(job_id: str) -> None:
 
             publish_progress_sync(redis, job_id, status="processing", progress=0.75, step="output")
 
-            # Récupération des bytes + upload sur le storage.
-            output_bytes = _extract_output_bytes(gpu, gpu_job_id, result)
-            if output_bytes is None:
-                raise RuntimeError("Résultat GPU vide (output_bytes is None)")
+            # Récupération du résultat (bytes ou flux disque) + upload
+            # streamé vers le storage.
+            output_data = _extract_output_bytes(gpu, gpu_job_id, result)
+            if output_data is None:
+                raise RuntimeError("Résultat GPU vide (output_data is None)")
 
             output_key = _build_output_key(job.input_key)
-            await storage.upload(output_key, output_bytes, "image/png")
+            try:
+                await storage.upload(output_key, output_data, "image/png")
+            finally:
+                # Mode flux (gros output sur disque) : fermer le handle —
+                # le fichier sous-jacent est nettoyé par gpu.close().
+                if not isinstance(output_data, bytes):
+                    output_data.close()
 
             # Re-check CANCELLED juste avant le commit final — un cancel
             # arrivé pendant l'inférence RunPod ne doit pas être écrasé
@@ -770,11 +777,14 @@ async def _wait_for_gpu_result(
     raise TimeoutError(f"Job GPU {gpu_job_id} n'a pas abouti en {max_elapsed / 60:.0f} minutes")
 
 
-def _extract_output_bytes(gpu: GPUBackend, gpu_job_id: str, result: GPUJobResult) -> bytes | None:
-    """Récupère les bytes du résultat via le backend GPU.
+def _extract_output_bytes(
+    gpu: GPUBackend, gpu_job_id: str, result: GPUJobResult
+) -> bytes | BinaryIO | None:
+    """Récupère le résultat via le backend GPU (bytes ou flux binaire).
 
-    Les deux backends (Core ML et RunPod) stockent les bytes en mémoire
-    après inférence et les exposent via ``get_output_data(job_id)``.
+    Core ML et le mode inline RunPod retournent des bytes en mémoire ;
+    le mode S3 RunPod retourne un flux ouvert sur un fichier temporaire
+    (les gros outputs sont streamés disque → storage sans pic RAM).
 
     Args:
         gpu: Backend GPU qui a traité le job.
@@ -782,7 +792,7 @@ def _extract_output_bytes(gpu: GPUBackend, gpu_job_id: str, result: GPUJobResult
         result: ``GPUJobResult`` complété.
 
     Returns:
-        Bytes de l'image de sortie, ou ``None`` si indisponible.
+        Bytes ou flux binaire de l'image de sortie, ou ``None``.
     """
     return gpu.get_output_data(gpu_job_id)
 
