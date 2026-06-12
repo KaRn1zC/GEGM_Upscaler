@@ -167,6 +167,8 @@ helm:
   image:
     name: alpine/helm:3.16.2
     entrypoint: [""]
+  # Absorbe les erreurs réseau transitoires des miroirs apk/charts.
+  retry: 2
   rules:
     - <<: *release_tag_rule
     - changes:
@@ -204,10 +206,14 @@ backend-image:
     - |
       echo "{\"auths\":{\"${CI_REGISTRY}\":{\"auth\":\"$(printf "%s:%s" "${CI_REGISTRY_USER}" "${CI_REGISTRY_PASSWORD}" | base64 | tr -d '\n')\"}}}" > /kaniko/.docker/config.json
   script:
+    # Triple tag : SHA court (réf immuable déployée par ArgoCD — garantit un
+    # diff GitOps + rollout même quand le tag git `prod` est réutilisé),
+    # tag git (lisibilité humaine sur le registry) et latest.
     - >-
       /kaniko/executor
       --context "${CI_PROJECT_DIR}"
       --dockerfile "${CI_PROJECT_DIR}/backend/Dockerfile"
+      --destination "${CI_REGISTRY_IMAGE}:${CI_COMMIT_SHORT_SHA}"
       --destination "${CI_REGISTRY_IMAGE}:${CI_COMMIT_TAG}"
       --destination "${CI_REGISTRY_IMAGE}:latest"
       --build-arg "VITE_AUTH_MODE=${VITE_AUTH_MODE_PROD:-dev}"
@@ -232,15 +238,18 @@ backend-image-scan:
     TRIVY_USERNAME: "${CI_REGISTRY_USER}"
     TRIVY_PASSWORD: "${CI_REGISTRY_PASSWORD}"
   script:
-    - trivy image --exit-code 1 --severity CRITICAL,HIGH --ignore-unfixed "${CI_REGISTRY_IMAGE}:${CI_COMMIT_TAG}"
+    # Scan de la réf SHA — celle que le bump GitOps déploie réellement.
+    - trivy image --exit-code 1 --severity CRITICAL,HIGH --ignore-unfixed "${CI_REGISTRY_IMAGE}:${CI_COMMIT_SHORT_SHA}"
 
 # ═══════════════════════ Bump GitOps (ArgoCD) ══════════════════════════
 # Dernier maillon CI → déploiement. Après build + scan OK, met à jour
 # `image.repository` + `image.tag` dans le dépôt GitOps `gegm-upscaler-argocd`
 # (fichier prod.yaml) : repository = chemin complet de l'image poussée
-# (`$CI_REGISTRY_IMAGE`), tag = `$CI_COMMIT_TAG`. ArgoCD détecte le commit et
-# synchronise le cluster (Application multi-sources : chart `.helm/` du repo
-# applicatif + prod.yaml). Aucun helm/kubectl ici.
+# (`$CI_REGISTRY_IMAGE`), tag = SHA court du commit (`$CI_COMMIT_SHORT_SHA`,
+# réf immuable : nouveau commit = nouveau tag = diff GitOps garanti, même si
+# le tag git `prod` est réutilisé). ArgoCD détecte le commit et synchronise
+# le cluster (Application multi-sources : chart `.helm/` du repo applicatif
+# + prod.yaml). Aucun helm/kubectl ici.
 #
 # Auth : variable CI `GITLAB_TOKEN` (write_repository sur le dépôt -argocd).
 # Prérequis : la variable doit être *masquée* (sinon le token fuite dans les
@@ -248,6 +257,9 @@ backend-image-scan:
 deploy-bump-tag:
   stage: deploy
   image: alpine:3.20
+  # Le job est idempotent (clone frais + commit-ou-rien) : le retry sur
+  # erreur transitoire (apk, réseau git) est sans risque.
+  retry: 2
   # Ne bumpe que si l'image a été buildée ET le scan Trivy est passé.
   needs: ["backend-image-scan"]
   rules:
@@ -261,17 +273,17 @@ deploy-bump-tag:
   script:
     - git clone --depth 1 "https://oauth2:${GITLAB_TOKEN}@${ARGOCD_REPO}" argocd
     - cd argocd
-    - NAME="$CI_REGISTRY_IMAGE" TAG="$CI_COMMIT_TAG" yq -i '.image.repository = strenv(NAME) | .image.tag = strenv(TAG)' prod.yaml
+    - NAME="$CI_REGISTRY_IMAGE" TAG="$CI_COMMIT_SHORT_SHA" yq -i '.image.repository = strenv(NAME) | .image.tag = strenv(TAG)' prod.yaml
     - echo "prod.yaml après bump :" && cat prod.yaml
     - git config user.email "ci@gegmgroup.com"
     - git config user.name "GitLab CI — gegm-upscaler"
     - git add prod.yaml
-    # Idempotent : si le tag est déjà à jour (re-run), on ne crée pas de commit
+    # Idempotent : re-run du même commit = même SHA, on ne crée pas de commit
     # vide. [skip ci] évite de déclencher un pipeline inutile sur le -argocd.
     - |
       if git diff --cached --quiet; then
-        echo "image.tag déjà à ${CI_COMMIT_TAG} — rien à committer."
+        echo "image.tag déjà à ${CI_COMMIT_SHORT_SHA} — rien à committer."
       else
-        git commit -m "chore(deploy): prod image tag → ${CI_COMMIT_TAG} [skip ci]"
+        git commit -m "chore(deploy): prod image → ${CI_COMMIT_SHORT_SHA} (tag git ${CI_COMMIT_TAG}) [skip ci]"
         git push origin HEAD:main
       fi
