@@ -64,6 +64,54 @@ async def test_should_send_base64_encoded_image(backend: RunPodBackend) -> None:
     assert len(payload["input"]["image"]) > 0
 
 
+async def test_should_send_image_url_instead_of_base64(backend: RunPodBackend) -> None:
+    """En mode URL présignée, le payload contient image_url et aucun base64."""
+    mock_resp = _mock_response(200, {"id": "rp-url-1", "status": "IN_QUEUE"})
+    mock_post = AsyncMock(return_value=mock_resp)
+
+    with patch.object(backend._client, "post", mock_post):
+        await backend.submit_job(
+            None,
+            UpscaleParams(),
+            image_url="https://bucket.example/presigned?sig=abc",
+        )
+
+    payload = mock_post.call_args.kwargs["json"]
+    assert payload["input"]["image_url"] == "https://bucket.example/presigned?sig=abc"
+    assert "image" not in payload["input"]
+
+
+async def test_should_send_execution_timeout_policy_in_milliseconds(
+    backend: RunPodBackend,
+) -> None:
+    """Le timeout par job part dans policy.executionTimeout, converti en ms."""
+    mock_resp = _mock_response(200, {"id": "rp-pol-1", "status": "IN_QUEUE"})
+    mock_post = AsyncMock(return_value=mock_resp)
+
+    with patch.object(backend._client, "post", mock_post):
+        await backend.submit_job(b"data", UpscaleParams(), execution_timeout_s=1200)
+
+    payload = mock_post.call_args.kwargs["json"]
+    assert payload["policy"]["executionTimeout"] == 1_200_000
+
+
+async def test_should_omit_policy_without_execution_timeout(backend: RunPodBackend) -> None:
+    """Sans timeout explicite, aucune policy n'est envoyée (défaut endpoint)."""
+    mock_resp = _mock_response(200, {"id": "rp-pol-2", "status": "IN_QUEUE"})
+    mock_post = AsyncMock(return_value=mock_resp)
+
+    with patch.object(backend._client, "post", mock_post):
+        await backend.submit_job(b"data", UpscaleParams())
+
+    assert "policy" not in mock_post.call_args.kwargs["json"]
+
+
+async def test_should_reject_submit_without_image_nor_url(backend: RunPodBackend) -> None:
+    """Ni bytes ni URL → ValueError avant tout appel réseau."""
+    with pytest.raises(ValueError, match="ni image_data ni image_url"):
+        await backend.submit_job(None, UpscaleParams())
+
+
 async def test_should_raise_on_submit_http_error(backend: RunPodBackend) -> None:
     """Une erreur HTTP au submit doit lever RuntimeError."""
     mock_resp = _mock_response(500, {"error": "internal error"})

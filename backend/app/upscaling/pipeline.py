@@ -168,6 +168,9 @@ async def _step_upscale(job_id: str) -> None:
 
     storage = get_storage()
     redis = get_sync_redis()
+    # Référence hors du try pour fermer le client HTTP du backend GPU dans
+    # le finally (sinon le pool httpx fuit à chaque job).
+    gpu: GPUBackend | None = None
 
     try:
         async with _open_db_session() as session:
@@ -193,8 +196,41 @@ async def _step_upscale(job_id: str) -> None:
                     f"Backend GPU '{job.gpu_backend}' indisponible au moment de l'upscale"
                 )
 
-            # Download de l'image source.
-            image_data = await storage.download(job.input_key)
+            # Dims connues dès l'upload — servent au timeout dynamique et à
+            # l'estimation de progression pendant l'inférence.
+            input_mp = (job.input_width * job.input_height) / 1_000_000
+            timeout_s = _compute_gpu_timeout(input_mp)
+
+            # Acheminement de l'image source vers le GPU. Deux modes :
+            # - URL présignée (storage S3 + backend compatible) : le worker
+            #   télécharge l'image lui-même — contourne la limite de payload
+            #   RunPod (~7 Mo de fichier en base64) et épargne la RAM du
+            #   worker Celery (aucun transit des bytes ici).
+            # - Bytes inline (dev local, Core ML, rollback worker) :
+            #   download puis base64.
+            image_data: bytes | None = None
+            image_url: str | None = None
+            if (
+                gpu.supports_url_input
+                and settings.GPU_INPUT_URL_ENABLED
+                and settings.STORAGE_BACKEND == "s3"
+            ):
+                # Expiration = timeout job + marge de queue : l'URL doit
+                # survivre au cold start + l'inférence, sans traîner des
+                # heures dans les logs RunPod (l'URL donne accès à l'input).
+                image_url = await storage.get_presigned_url(
+                    job.input_key, expires_in=timeout_s + 900
+                )
+                # Le handler n'accepte que du HTTPS joignable depuis RunPod —
+                # un endpoint S3 interne (MinIO http) retombe en inline.
+                if not image_url.startswith("https://"):
+                    logger.warning(
+                        "URL présignée non-HTTPS ({url}) — fallback base64 inline",
+                        url=image_url.split("?")[0],
+                    )
+                    image_url = None
+            if image_url is None:
+                image_data = await storage.download(job.input_key)
             publish_progress_sync(
                 redis, job_id, status="processing", progress=0.30, step="downloaded"
             )
@@ -205,7 +241,12 @@ async def _step_upscale(job_id: str) -> None:
                 model_name=job.model_name,
                 output_format="png",
             )
-            gpu_job_id = await gpu.submit_job(image_data, params)
+            gpu_job_id = await gpu.submit_job(
+                image_data,
+                params,
+                image_url=image_url,
+                execution_timeout_s=timeout_s,
+            )
 
             # Persister le ``run_id`` GPU immédiatement pour que
             # ``cancel_job`` puisse le retrouver et appeler
@@ -214,11 +255,6 @@ async def _step_upscale(job_id: str) -> None:
             # laisserait RunPod facturer le job jusqu'à completion.
             job.gpu_run_id = gpu_job_id
             await session.commit()
-
-            # Snapshot des dims pour l'estimation de progression pendant
-            # l'inférence — on ne garde pas la session ouverte pendant les
-            # 30-120 s de polling RunPod.
-            input_mp = (job.input_width * job.input_height) / 1_000_000
 
             publish_progress_sync(
                 redis, job_id, status="processing", progress=0.40, step="inference"
@@ -233,6 +269,7 @@ async def _step_upscale(job_id: str) -> None:
                 redis=redis,
                 job_id=job_id,
                 input_mp=input_mp,
+                max_elapsed_s=float(timeout_s),
             )
             if result.status != GPUJobStatus.COMPLETED:
                 raise RuntimeError(result.error or "Inférence GPU échouée")
@@ -265,6 +302,8 @@ async def _step_upscale(job_id: str) -> None:
 
         publish_progress_sync(redis, job_id, status="processing", progress=0.85, step="uploaded")
     finally:
+        if gpu is not None:
+            await gpu.close()
         redis.close()
 
 
@@ -600,6 +639,25 @@ def _try_build_cloud_backend() -> GPUBackend | None:
     )
 
 
+def _compute_gpu_timeout(input_mp: float) -> int:
+    """Calcule le timeout d'un job GPU à partir de la taille de l'image.
+
+    Basé sur la durée estimée (60 s + 50 s/MP, calibrée sur les logs
+    RunPod) avec un facteur 2 de marge, borné entre 10 minutes et
+    ``settings.GPU_JOB_TIMEOUT_MAX_S``. La même valeur est transmise à
+    RunPod (``policy.executionTimeout``) et utilisée comme plafond du
+    polling côté client — les deux bouts de la chaîne sont alignés.
+
+    Args:
+        input_mp: Mégapixels de l'image source.
+
+    Returns:
+        Timeout en secondes.
+    """
+    estimated = 60.0 + 50.0 * input_mp
+    return int(min(max(2.0 * estimated, 600.0), float(settings.GPU_JOB_TIMEOUT_MAX_S)))
+
+
 async def _wait_for_gpu_result(
     gpu: GPUBackend,
     gpu_job_id: str,
@@ -607,12 +665,15 @@ async def _wait_for_gpu_result(
     redis: object | None = None,
     job_id: str | None = None,
     input_mp: float = 1.0,
+    max_elapsed_s: float = 600.0,
 ) -> GPUJobResult:
     """Poll le statut du job GPU jusqu'à complétion ou échec.
 
     Backoff exponentiel : 0.5s → 1s → 2s → 4s → 5s constant.
     Si le job reste en QUEUED plus de 30s (cold start RunPod détecté),
-    le polling ralentit à 10s et le timeout s'étend à 15 minutes.
+    le polling ralentit à 10s et le timeout s'étend de 5 minutes (le
+    temps de queue n'est pas couvert par l'``executionTimeout`` RunPod,
+    qui ne compte que l'exécution).
 
     Si ``redis`` et ``job_id`` sont fournis, émet une progression continue
     entre 0.40 et 0.70 à chaque polling tick (step "inference"). Ça évite
@@ -628,6 +689,8 @@ async def _wait_for_gpu_result(
         redis: Instance Redis sync pour publier la progression (optionnel).
         job_id: UUID business du job, clé Redis (optionnel).
         input_mp: Mégapixels de l'image source, pour caler la durée estimée.
+        max_elapsed_s: Plafond de polling en secondes — calculé par
+            ``_compute_gpu_timeout`` selon la taille de l'image.
 
     Returns:
         ``GPUJobResult`` final.
@@ -636,7 +699,11 @@ async def _wait_for_gpu_result(
         TimeoutError: Si le job ne se termine pas dans le délai imparti.
     """
     delays = [0.5, 1.0, 2.0, 4.0]
-    max_elapsed = 600.0  # 10 minutes par défaut
+    # L'executionTimeout RunPod ne compte que l'exécution pure ; notre
+    # polling compte queue + exécution + transferts S3 du handler. Marge
+    # de 5 min d'office pour ne jamais abandonner un job que RunPod
+    # laisserait légitimement finir.
+    max_elapsed = max_elapsed_s + 300.0
     elapsed = 0.0
     cold_start_detected = False
 
@@ -652,12 +719,16 @@ async def _wait_for_gpu_result(
             return result
 
         # Cold start : le job reste en queue > 30s → adapter les paramètres.
+        # +15 min de marge (pires cold starts RunPod observés, cf. seuil
+        # STALE_JOB_THRESHOLD_MINUTES) — le temps de queue n'est pas
+        # décompté par l'executionTimeout RunPod, mais il l'est par nous.
         if result.status == GPUJobStatus.QUEUED and elapsed > 30 and not cold_start_detected:
             cold_start_detected = True
-            max_elapsed = 900.0  # 15 minutes pour absorber le cold start
+            max_elapsed = max_elapsed_s + 900.0
             logger.info(
-                "Cold start détecté pour job GPU {id} — timeout étendu à 15 min",
+                "Cold start détecté pour job GPU {id} — timeout étendu à {t:.0f} min",
                 id=gpu_job_id,
+                t=max_elapsed / 60,
             )
 
         # Publication progressive entre 0.40 et 0.70 — linéaire sur la
@@ -685,6 +756,17 @@ async def _wait_for_gpu_result(
         await asyncio.sleep(delay)
         elapsed += delay
 
+    # Annuler côté provider avant d'abandonner : sans ça, le job RunPod
+    # orphelin continue de tourner et de facturer (et un retry Celery en
+    # resoumettrait un deuxième en parallèle).
+    try:
+        await gpu.cancel_job(gpu_job_id)
+    except Exception as exc:
+        logger.warning(
+            "Annulation du job GPU {id} échouée après timeout : {err}",
+            id=gpu_job_id,
+            err=str(exc),
+        )
     raise TimeoutError(f"Job GPU {gpu_job_id} n'a pas abouti en {max_elapsed / 60:.0f} minutes")
 
 

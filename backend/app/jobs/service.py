@@ -83,6 +83,28 @@ async def create_job(
             detail="Impossible de lire l'image source",
         ) from exc
 
+    # Défense en profondeur : l'upload valide déjà ce plafond, mais
+    # ``input_key`` peut référencer n'importe quel objet du storage (clé
+    # ancienne, uploadée avant un durcissement de la limite). Refuser ici
+    # évite de payer du GPU pour un job que le timeout RunPod tuerait de
+    # toute façon (durée estimée 60 s + 50 s/MP).
+    megapixels = (width * height) / 1_000_000
+    if megapixels > settings.MAX_INPUT_MEGAPIXELS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Image trop grande : {megapixels:.0f} MP (max {settings.MAX_INPUT_MEGAPIXELS} MP)"
+            ),
+        )
+    if 60.0 + 50.0 * megapixels > settings.GPU_JOB_TIMEOUT_MAX_S:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Image trop grande pour le budget temps GPU ({megapixels:.0f} MP — "
+                f"durée estimée au-delà de {settings.GPU_JOB_TIMEOUT_MAX_S} s)"
+            ),
+        )
+
     # Routage scale → modèle : chaque scale_factor a son modèle natif
     # dédié (seuls les poids pré-entraînés existants sont utilisés).
     # - x4 → DRCT-L (state-of-the-art, poids officiels ming053l/DRCT)

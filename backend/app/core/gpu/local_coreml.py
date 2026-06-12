@@ -120,7 +120,14 @@ class CoreMLBackend(GPUBackend):
         self._results: dict[str, GPUJobResult] = {}
         self._output_data: dict[str, bytes] = {}
 
-    async def submit_job(self, image_data: bytes, params: UpscaleParams) -> str:
+    async def submit_job(
+        self,
+        image_data: bytes | None,
+        params: UpscaleParams,
+        *,
+        image_url: str | None = None,
+        execution_timeout_s: int | None = None,
+    ) -> str:
         """Soumet une image pour upscaling via Core ML.
 
         L'inférence est exécutée dans un thread pool (via
@@ -129,12 +136,22 @@ class CoreMLBackend(GPUBackend):
         ``get_job_status``.
 
         Args:
-            image_data: Bytes bruts de l'image source.
+            image_data: Bytes bruts de l'image source — obligatoires ici,
+                le backend local ne télécharge pas d'URL.
             params: Paramètres d'upscaling.
+            image_url: Non supporté (``supports_url_input`` est faux).
+            execution_timeout_s: Ignoré — l'inférence locale n'a pas de
+                timeout provider.
 
         Returns:
             Identifiant unique du job local.
+
+        Raises:
+            ValueError: Si ``image_data`` est absent.
         """
+        if image_data is None:
+            raise ValueError("CoreMLBackend exige les bytes de l'image (pas d'image_url)")
+
         job_id = f"coreml-{uuid.uuid4().hex[:12]}"
 
         logger.info(

@@ -13,6 +13,7 @@ Les crédentials sont fournis via les paramètres constructeur et proviennent
 typiquement d'un ``SecretsBackend`` (Infisical, Vault, env).
 """
 
+from io import BytesIO
 from typing import TYPE_CHECKING, BinaryIO
 
 from loguru import logger
@@ -97,16 +98,20 @@ class S3StorageBackend(StorageBackend):
         Raises:
             RuntimeError: Si l'upload S3 échoue.
         """
-        raw = data if isinstance(data, bytes) else data.read()
+        # upload_fileobj bascule automatiquement en multipart au-delà de
+        # 8 Mo (chunks streamés) — indispensable pour les gros fichiers :
+        # pas de PUT monolithique qui duplique tout le buffer, et plus de
+        # plafond des 5 Go du put_object simple.
+        stream: BinaryIO = BytesIO(data) if isinstance(data, bytes) else data
 
         session = self._session()
         async with session.client("s3", **self._client_kwargs()) as s3:
             try:
-                await s3.put_object(
-                    Bucket=self._bucket,
-                    Key=key,
-                    Body=raw,
-                    ContentType=content_type,
+                await s3.upload_fileobj(
+                    stream,
+                    self._bucket,
+                    key,
+                    ExtraArgs={"ContentType": content_type},
                 )
             except Exception as exc:
                 logger.error(

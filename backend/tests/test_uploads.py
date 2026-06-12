@@ -2,9 +2,11 @@
 
 from io import BytesIO
 
+import pytest
 from httpx import AsyncClient
 from PIL import Image
 
+from app.core.config import settings
 from tests.conftest import AUTH_HEADERS
 
 
@@ -81,3 +83,37 @@ async def test_should_reject_unauthenticated_request(client: AsyncClient) -> Non
     )
 
     assert response.status_code == 401
+
+
+async def test_should_reject_file_exceeding_max_size(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Un fichier au-delà de MAX_UPLOAD_SIZE_MB retourne 413 sans tout lire."""
+    monkeypatch.setattr(settings, "MAX_UPLOAD_SIZE_MB", 1)
+    # TIFF non compressé : 700x700x3 ≈ 1,47 Mo > 1 Mo — déterministe.
+    content = _make_test_image(700, 700, fmt="TIFF")
+
+    response = await client.post(
+        "/api/uploads",
+        files={"file": ("shoot.tiff", content, "image/tiff")},
+        headers=AUTH_HEADERS,
+    )
+
+    assert response.status_code == 413
+    assert "max 1 Mo" in response.json()["detail"]
+
+
+async def test_should_reject_image_exceeding_megapixel_ceiling(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Une image au-delà de MAX_INPUT_MEGAPIXELS retourne 400."""
+    monkeypatch.setattr(settings, "MAX_INPUT_MEGAPIXELS", 0)
+
+    response = await client.post(
+        "/api/uploads",
+        files={"file": ("photo.png", _make_test_image(), "image/png")},
+        headers=AUTH_HEADERS,
+    )
+
+    assert response.status_code == 400
+    assert "Image trop grande" in response.json()["detail"]

@@ -110,6 +110,16 @@ config:
   # dans `backend.app.jobs.service._model_for_scale`).
   UPSCALE_MODEL: "drct-l"
 
+  # Limites d'upload et de jobs GPU (cf. backend/app/core/config.py).
+  # MAX_UPLOAD_SIZE_MB doit rester cohérent avec api.resources.limits.memory
+  # (le fichier transite en RAM) ; GPU_JOB_TIMEOUT_MAX_S doit rester ≤ à
+  # l'Execution Timeout de l'endpoint RunPod (3600 s).
+  MAX_UPLOAD_SIZE_MB: "300"
+  # 64 MP couvre tous les boîtiers plein format ; borné par le budget temps
+  # GPU (60+50xMP s ≤ GPU_JOB_TIMEOUT_MAX_S) et la RAM du worker RunPod.
+  MAX_INPUT_MEGAPIXELS: "64"
+  GPU_JOB_TIMEOUT_MAX_S: "3600"
+
   # Storage S3 OVH — input (uploads) et output (résultats)
   S3_BUCKET: "upscaler-gegmgroup-com-inbox"
   S3_ENDPOINT_URL: "https://s3.gra.io.cloud.ovh.net"  # ex: https://s3.gra.io.cloud.ovh.net
@@ -195,7 +205,9 @@ api:
       memory: "256Mi"
     limits:
       cpu: "1"
-      memory: "1Gi"
+      # 2 Gi : un upload transite en RAM (MAX_UPLOAD_SIZE_MB = 300 Mo
+      # + buffers de validation/PIL) — 1 Gi exposait à l'OOMKill.
+      memory: "2Gi"
   probes:
     liveness:
       path: "/api/health"
@@ -226,7 +238,10 @@ worker:
       memory: "512Mi"
     limits:
       cpu: "2"
-      memory: "2Gi"
+      # 3 Gi : le worker télécharge les outputs upscalés (plusieurs
+      # centaines de Mo en PNG sur les grandes images) avant de les
+      # reverser dans le storage — 2 tâches concurrentes possibles.
+      memory: "3Gi"
   # Grace period suffisante pour laisser un upscale RunPod se terminer
   # avant SIGKILL (cold start max ~15 min).
   terminationGracePeriodSeconds: 900

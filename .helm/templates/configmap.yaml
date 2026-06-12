@@ -19,6 +19,11 @@ data:
   UPSCALE_MODEL: {{ .Values.config.UPSCALE_MODEL | quote }}
   ADMIN_EMAILS: {{ .Values.config.ADMIN_EMAILS | quote }}
 
+  # Limites d'upload / jobs GPU
+  MAX_UPLOAD_SIZE_MB: {{ .Values.config.MAX_UPLOAD_SIZE_MB | quote }}
+  MAX_INPUT_MEGAPIXELS: {{ .Values.config.MAX_INPUT_MEGAPIXELS | quote }}
+  GPU_JOB_TIMEOUT_MAX_S: {{ .Values.config.GPU_JOB_TIMEOUT_MAX_S | quote }}
+
   # Storage S3 (public — credentials dans le Secret)
   S3_BUCKET: {{ .Values.config.S3_BUCKET | quote }}
   S3_ENDPOINT_URL: {{ .Values.config.S3_ENDPOINT_URL | quote }}

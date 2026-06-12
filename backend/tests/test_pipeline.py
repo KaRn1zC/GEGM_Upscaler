@@ -8,9 +8,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.core.config import settings
 from app.core.gpu.interface import GPUJobResult, GPUJobStatus
 from app.upscaling.pipeline import (
     _build_output_key,
+    _compute_gpu_timeout,
     _extract_output_bytes,
     _try_build_cloud_backend,
     _try_build_local_backend,
@@ -166,6 +168,7 @@ async def test_should_raise_on_timeout() -> None:
 
     mock_gpu = MagicMock()
     mock_gpu.get_job_status = AsyncMock(return_value=stuck)
+    mock_gpu.cancel_job = AsyncMock()
 
     # Patch asyncio.sleep pour accélérer le test.
     with (
@@ -173,3 +176,27 @@ async def test_should_raise_on_timeout() -> None:
         pytest.raises(TimeoutError, match="n'a pas abouti"),
     ):
         await _wait_for_gpu_result(mock_gpu, "job-123")
+
+    # Le job provider doit être annulé pour ne pas tourner orphelin facturé.
+    mock_gpu.cancel_job.assert_awaited_once_with("job-123")
+
+
+# ──────────────────────────────────────────────────────────────
+# _compute_gpu_timeout
+# ──────────────────────────────────────────────────────────────
+
+
+def test_should_floor_gpu_timeout_at_ten_minutes() -> None:
+    """Une petite image garde le plancher historique de 600 s."""
+    assert _compute_gpu_timeout(0.5) == 600
+
+
+def test_should_scale_gpu_timeout_with_megapixels() -> None:
+    """Le timeout suit la formule 2 x (60 + 50/MP) au-delà du plancher."""
+    # 20 MP : 2 x (60 + 1000) = 2120 s — sous le plafond de 3600 s.
+    assert _compute_gpu_timeout(20.0) == 2120
+
+
+def test_should_cap_gpu_timeout_at_settings_max() -> None:
+    """Une image énorme est bornée par GPU_JOB_TIMEOUT_MAX_S."""
+    assert _compute_gpu_timeout(500.0) == settings.GPU_JOB_TIMEOUT_MAX_S

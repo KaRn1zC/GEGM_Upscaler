@@ -1,14 +1,18 @@
 """Handler RunPod Serverless pour l'upscaling GEGM.
 
 Point d'entrée invoqué par RunPod pour chaque job. Reçoit une image
-encodée en base64, exécute l'inférence via le modèle DRCT-L (ou HAT-L
-en fallback), et retourne l'image upscalée encodée en base64.
+(base64 inline ou URL présignée à télécharger), exécute l'inférence via
+le modèle DRCT-L (ou HAT-L en fallback), et retourne l'image upscalée
+(base64 inline ou URL S3 selon ``STORAGE_BACKEND``).
 
 Protocole I/O avec le client ``RunPodBackend`` :
 
 Entrée (event["input"]) :
     {
-        "image": "<base64 PNG/JPEG>",
+        "image": "<base64 PNG/JPEG>",        # OU, exclusif :
+        "image_url": "<URL HTTPS présignée>",  # téléchargée par le worker
+                                               # (contourne la limite de
+                                               # ~10 Mo du payload /run)
         "scale_factor": 2 | 4,
         "model_name": "drct-l" | "hat-l",
         "output_format": "png" | "jpeg" | "webp"
@@ -30,6 +34,8 @@ import base64
 import io
 import os
 import time
+import urllib.parse
+import urllib.request
 import uuid
 from pathlib import Path
 from typing import Any
@@ -66,6 +72,65 @@ S3_BUCKET = os.environ.get("S3_BUCKET", "")
 S3_ACCESS_KEY = os.environ.get("S3_ACCESS_KEY", "")
 S3_SECRET_KEY = os.environ.get("S3_SECRET_KEY", "")
 S3_REGION = os.environ.get("S3_REGION", "auto")
+
+# Plafond mégapixels de l'image SOURCE — garde-fou contre les decompression
+# bombs et les jobs déraisonnables. Aligné sur MAX_INPUT_MEGAPIXELS du
+# backend FastAPI (qui valide en amont) ; ici c'est la défense en profondeur.
+MAX_INPUT_MEGAPIXELS = float(os.environ.get("MAX_INPUT_MEGAPIXELS", "512"))
+
+# On remplace le garde-fou interne de Pillow (~179 MP) par le plafond
+# explicite ci-dessus, vérifié AVANT toute inférence.
+Image.MAX_IMAGE_PIXELS = None
+
+# Dimensions max par côté des formats de sortie. Validées AVANT l'inférence :
+# échouer à l'encodage après 30 min de GPU serait payer pour rien.
+_FORMAT_MAX_SIDE: dict[str, int] = {
+    "png": 2**31 - 1,  # quasi illimité
+    "jpeg": 65_535,
+    "webp": 16_383,
+}
+
+# Borne du téléchargement d'input par URL — protège la RAM du container
+# contre une URL pathologique avant même la validation mégapixels.
+MAX_INPUT_DOWNLOAD_BYTES = int(os.environ.get("MAX_INPUT_DOWNLOAD_BYTES", str(2 * 1024**3)))
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Refuse toute redirection HTTP.
+
+    La validation HTTPS + host de ``image_url`` porte sur l'URL initiale —
+    sans ce handler, un 302 pourrait la contourner vers un host interne
+    (metadata cloud, services privés). Une URL S3 présignée ne redirige
+    jamais : tout 3xx est illégitime ici.
+    """
+
+    def redirect_request(self, *args: Any, **kwargs: Any) -> None:
+        return None
+
+
+_url_opener = urllib.request.build_opener(_NoRedirectHandler)
+
+
+def _is_allowed_input_url(url: str) -> bool:
+    """Vérifie qu'une ``image_url`` est HTTPS et pointe sur le S3 attendu.
+
+    Si ``S3_ENDPOINT_URL`` est configurée, l'hôte doit être celui de
+    l'endpoint (path-style) ou un sous-domaine bucket (virtual-host).
+    Sans config S3 (mode inline/dev), seul HTTPS est exigé.
+
+    Args:
+        url: URL candidate fournie dans le payload du job.
+
+    Returns:
+        ``True`` si l'URL est téléchargeable en confiance.
+    """
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme != "https" or not parsed.netloc:
+        return False
+    if not S3_ENDPOINT_URL:
+        return True
+    allowed = urllib.parse.urlparse(S3_ENDPOINT_URL).netloc
+    return parsed.netloc == allowed or parsed.netloc.endswith("." + allowed)
 
 # Cache des modèles chargés (pour éviter de recharger entre les jobs).
 # Clé = "{model_name}_x{scale_factor}" pour distinguer les variantes : les
@@ -502,8 +567,9 @@ def handler(event: dict[str, Any]) -> dict[str, Any]:
             return {"status": "ready"}
 
         image_b64 = inputs.get("image")
-        if not image_b64:
-            return {"error": "Champ 'image' manquant dans l'input"}
+        image_url = inputs.get("image_url")
+        if not image_b64 and not image_url:
+            return {"error": "Champ 'image' ou 'image_url' manquant dans l'input"}
 
         scale_factor = int(inputs.get("scale_factor", 4))
         model_name = inputs.get("model_name", DEFAULT_MODEL)
@@ -514,9 +580,64 @@ def handler(event: dict[str, Any]) -> dict[str, Any]:
         if output_format not in ("png", "jpeg", "webp"):
             return {"error": f"output_format invalide : {output_format}"}
 
+        # Récupération des bytes source — URL présignée (gros fichiers,
+        # aucune limite de payload) ou base64 inline (petits fichiers).
+        if image_url:
+            url = str(image_url)
+            if not _is_allowed_input_url(url):
+                return {
+                    "error": (
+                        "image_url refusée : HTTPS requis et host limité "
+                        "au domaine S3 configuré"
+                    )
+                }
+            try:
+                buf = io.BytesIO()
+                with _url_opener.open(url, timeout=120) as resp:
+                    while chunk := resp.read(1024 * 1024):
+                        buf.write(chunk)
+                        if buf.tell() > MAX_INPUT_DOWNLOAD_BYTES:
+                            return {"error": "Input trop volumineux au téléchargement"}
+                image_bytes = buf.getvalue()
+            except Exception as exc:
+                return {"error": f"Téléchargement de image_url échoué : {exc}"}
+        else:
+            try:
+                image_bytes = base64.b64decode(image_b64)
+            except Exception as exc:
+                return {"error": f"Base64 invalide : {exc}"}
+
         try:
-            image_bytes = base64.b64decode(image_b64)
+            # Ouverture paresseuse : les dimensions sont lues dans l'en-tête,
+            # sans décoder les pixels — les validations ci-dessous restent
+            # gratuites même sur une image énorme.
             image = Image.open(io.BytesIO(image_bytes))
+            width, height = image.size
+        except Exception as exc:
+            return {"error": f"Image source invalide : {exc}"}
+
+        input_mp = (width * height) / 1_000_000
+        if input_mp > MAX_INPUT_MEGAPIXELS:
+            return {
+                "error": (
+                    f"Image trop grande : {input_mp:.0f} MP "
+                    f"(max {MAX_INPUT_MEGAPIXELS:.0f} MP)"
+                )
+            }
+
+        # Les pixels de SORTIE doivent tenir dans le format demandé — on
+        # vérifie avant l'inférence pour ne pas griller du GPU pour rien.
+        out_side = max(width, height) * scale_factor
+        if out_side > _FORMAT_MAX_SIDE[output_format]:
+            return {
+                "error": (
+                    f"Sortie {width * scale_factor}x{height * scale_factor} px : "
+                    f"le format {output_format} plafonne à "
+                    f"{_FORMAT_MAX_SIDE[output_format]} px par côté — utiliser png"
+                )
+            }
+
+        try:
             if image.mode != "RGB":
                 image = image.convert("RGB")
         except Exception as exc:
@@ -542,8 +663,9 @@ def handler(event: dict[str, Any]) -> dict[str, Any]:
             save_kwargs["method"] = 6
 
         result_image.save(buffer, format=output_format.upper(), **save_kwargs)
-        output_bytes = buffer.getvalue()
-        output_size_kb = len(output_bytes) // 1024
+        # getbuffer() lit la taille sans dupliquer les octets — sur un PNG
+        # de plusieurs centaines de Mo, un getvalue() ici doublerait le pic RAM.
+        output_size_kb = buffer.getbuffer().nbytes // 1024
 
         logger.info(
             "Inférence terminée — sortie {w}x{h} ({size} Ko) — upload via {storage}",
@@ -564,20 +686,23 @@ def handler(event: dict[str, Any]) -> dict[str, Any]:
         if STORAGE_BACKEND == "s3":
             # Upload sur bucket S3-compatible. L'URL ``s3://bucket/key`` est
             # retournée dans l'output — le backend la téléchargera ensuite.
+            # upload_fileobj streame en multipart (chunks) : pas de copie du
+            # buffer ni de plafond 5 Go du put_object simple.
             key = f"outputs/{uuid.uuid4()}.{output_format}"
             content_type = f"image/{output_format if output_format != 'jpeg' else 'jpeg'}"
-            _get_s3_client().put_object(
-                Bucket=S3_BUCKET,
-                Key=key,
-                Body=output_bytes,
-                ContentType=content_type,
+            buffer.seek(0)
+            _get_s3_client().upload_fileobj(
+                buffer,
+                S3_BUCKET,
+                key,
+                ExtraArgs={"ContentType": content_type},
             )
             result["output_url"] = f"s3://{S3_BUCKET}/{key}"
             logger.info("Output uploadé sur s3://{bucket}/{key}", bucket=S3_BUCKET, key=key)
         else:
             # Mode inline historique : base64 dans le payload (limité à ~20 MB
             # par l'API /status de RunPod — adapté aux petits tests uniquement).
-            result["image"] = base64.b64encode(output_bytes).decode("ascii")
+            result["image"] = base64.b64encode(buffer.getvalue()).decode("ascii")
 
         return result
 

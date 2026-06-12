@@ -57,6 +57,19 @@ class Settings(BaseSettings):
     # cold-starts RunPod (~15 min) + une marge de sécurité.
     STALE_JOB_THRESHOLD_MINUTES: int = 30
 
+    # ── Limites d'upload ─────────────────────────────────────────
+    # Taille max d'un fichier image uploadé. 300 Mo couvre les TIFF de
+    # photo shoot plein format (45-61 MP ≈ 130-200 Mo) avec de la marge.
+    # Doit rester cohérent avec la limite mémoire du pod API (le fichier
+    # transite en RAM le temps de la validation + upload storage).
+    MAX_UPLOAD_SIZE_MB: int = 300
+    # Plafond en mégapixels de l'image SOURCE. Garde-fou contre les
+    # decompression bombs et borne opérationnelle : 64 MP couvre tous les
+    # boîtiers plein format (61 MP max) tout en restant dans le budget
+    # temps GPU (durée estimée 60+50xMP ≤ GPU_JOB_TIMEOUT_MAX_S) et la
+    # RAM du worker RunPod. À remonter après la phase 2 (merge optimisé).
+    MAX_INPUT_MEGAPIXELS: int = 64
+
     # ── Auth ─────────────────────────────────────────────────────
     AUTH_BACKEND: Literal["static_token", "oidc"] = "static_token"
     DEV_AUTH_TOKEN: SecretStr = SecretStr("dev-secret-token-change-me")
@@ -76,6 +89,16 @@ class Settings(BaseSettings):
     COREML_MODEL_DIR: str = "models"
     RUNPOD_API_KEY: SecretStr = SecretStr("")
     RUNPOD_ENDPOINT_ID: str = ""
+    # Plafond du timeout dynamique d'un job GPU. Le timeout effectif est
+    # calculé par image (60 s + 50 s/MP, facteur 2 de marge) puis borné entre
+    # 600 s et cette valeur. Doit rester ≤ à l'Execution Timeout configuré
+    # sur l'endpoint RunPod (3600 s), sinon RunPod coupe avant nous.
+    GPU_JOB_TIMEOUT_MAX_S: int = 3600
+    # Achemine l'image source au worker GPU par URL S3 présignée (gros
+    # fichiers, contourne la limite de payload RunPod). Désactivable en
+    # urgence si le worker déployé ne supporte pas encore `image_url`
+    # (rollback) — le pipeline retombe alors sur le base64 inline.
+    GPU_INPUT_URL_ENABLED: bool = True
 
     # ── Stockage S3 des outputs RunPod ─────────────────────────
     # Le handler RunPod upload les images upscalées sur ce bucket car l'API
@@ -143,3 +166,12 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# Garde-fou Pillow centralisé : le défaut interne (~179 MP) est remplacé par
+# notre plafond métier + marge, pour TOUS les points de décodage PIL du
+# process (uploads, create_job, preprocessing) — config.py étant importé
+# partout, la protection est cohérente API/worker. Au-delà de 2x le plafond,
+# Pillow lève toujours DecompressionBombError (défense en profondeur).
+from PIL import Image  # noqa: E402 — import tardif volontaire, après Settings
+
+Image.MAX_IMAGE_PIXELS = settings.MAX_INPUT_MEGAPIXELS * 1_000_000 * 2

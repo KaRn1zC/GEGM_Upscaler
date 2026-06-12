@@ -1,8 +1,10 @@
 """Backend GPU cloud via l'API RunPod Serverless.
 
 Soumet des images à un endpoint RunPod Serverless pour upscaling et
-poll le statut jusqu'à complétion. L'image est transmise en base64
-dans le payload JSON ; le résultat revient dans le champ ``output``.
+poll le statut jusqu'à complétion. L'image est transmise soit en base64
+dans le payload JSON (limité à ~10 Mo par l'API ``/run``), soit par URL
+présignée que le handler télécharge lui-même (aucune limite de taille) ;
+le résultat revient dans le champ ``output``.
 
 Le handler RunPod supporte deux modes de retour :
 - ``inline`` : image en base64 dans ``output.image`` (limité à ~20 MB
@@ -108,31 +110,56 @@ class RunPodBackend(GPUBackend):
                 region_name=s3_region,
             )
 
-    async def submit_job(self, image_data: bytes, params: UpscaleParams) -> str:
+    supports_url_input = True
+
+    async def submit_job(
+        self,
+        image_data: bytes | None,
+        params: UpscaleParams,
+        *,
+        image_url: str | None = None,
+        execution_timeout_s: int | None = None,
+    ) -> str:
         """Soumet une image à RunPod pour upscaling.
 
-        Encode l'image en base64 et envoie un POST à l'endpoint ``/run``.
-        Le handler RunPod côté serveur décode, traite, et renvoie le
-        résultat via le mécanisme de polling ``/status``.
+        Envoie un POST à l'endpoint ``/run``. L'image part de préférence
+        en ``image_url`` (URL présignée que le handler télécharge — aucune
+        limite de taille), sinon en base64 inline (limite ~10 Mo de payload
+        JSON, soit ~7,3 Mo de fichier réel). Le handler décode, traite, et
+        renvoie le résultat via le mécanisme de polling ``/status``.
 
         Args:
-            image_data: Bytes bruts de l'image source.
+            image_data: Bytes bruts de l'image source (mode inline), ou
+                ``None`` si ``image_url`` est fournie.
             params: Paramètres d'upscaling (facteur, modèle, format).
+            image_url: URL présignée de l'image source (mode URL, préféré).
+            execution_timeout_s: Timeout d'exécution par job, transmis à
+                RunPod via ``policy.executionTimeout`` (prioritaire sur le
+                défaut de l'endpoint). ``None`` = défaut endpoint.
 
         Returns:
             Identifiant du job RunPod pour le suivi de statut.
 
         Raises:
+            ValueError: Si ni ``image_data`` ni ``image_url`` n'est fourni.
             RuntimeError: Si l'API RunPod retourne une erreur HTTP.
         """
-        payload = {
-            "input": {
-                "image": base64.b64encode(image_data).decode("ascii"),
-                "scale_factor": params.scale_factor,
-                "model_name": params.model_name,
-                "output_format": params.output_format,
-            },
+        inputs: dict[str, object] = {
+            "scale_factor": params.scale_factor,
+            "model_name": params.model_name,
+            "output_format": params.output_format,
         }
+        if image_url:
+            inputs["image_url"] = image_url
+        elif image_data is not None:
+            inputs["image"] = base64.b64encode(image_data).decode("ascii")
+        else:
+            raise ValueError("submit_job : ni image_data ni image_url fourni")
+
+        payload: dict[str, object] = {"input": inputs}
+        if execution_timeout_s is not None:
+            # La policy RunPod s'exprime en millisecondes.
+            payload["policy"] = {"executionTimeout": execution_timeout_s * 1000}
 
         response = await self._client.post(f"{self._base_url}/run", json=payload)
 
@@ -253,7 +280,9 @@ class RunPodBackend(GPUBackend):
         Returns:
             Bytes de l'image upscalée, ou ``None`` si non disponible.
         """
-        return self._output_cache.get(job_id)
+        # pop : un seul consommateur (le pipeline) — libérer la référence
+        # du cache immédiatement réduit le pic RAM sur les gros outputs.
+        return self._output_cache.pop(job_id, None)
 
     async def cancel_job(self, job_id: str) -> None:
         """Annule un job RunPod en cours ou en file d'attente.

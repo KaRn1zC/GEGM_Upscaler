@@ -2,9 +2,10 @@
 
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 
+from app.core.config import settings
 from app.core.dependencies import get_current_user, get_storage
 from app.core.media import guess_media_type
 from app.core.storage.interface import StorageBackend
@@ -17,15 +18,28 @@ router = APIRouter(tags=["uploads"])
 
 @router.post("/api/uploads", response_model=UploadResponse, status_code=201)
 async def upload_image(
+    request: Request,
     file: UploadFile,
     storage: StorageBackend = Depends(get_storage),
     _user: User = Depends(get_current_user),
 ) -> UploadResponse:
     """Upload d'une image pour un futur job d'upscaling.
 
-    Accepte JPEG, PNG, WebP et TIFF. Taille maximale : 100 Mo.
-    Retourne la clé de stockage et les dimensions de l'image.
+    Accepte JPEG, PNG, WebP et TIFF. Taille maximale configurable via
+    ``MAX_UPLOAD_SIZE_MB`` (300 Mo par défaut). Retourne la clé de
+    stockage et les dimensions de l'image.
     """
+    # Rejet précoce sur le Content-Length déclaré (+1 Mo de marge pour
+    # l'enrobage multipart) : évite de recevoir des gigaoctets pour rien.
+    # La lecture bornée de process_upload reste la défense de fond contre
+    # les Content-Length menteurs.
+    content_length = request.headers.get("content-length")
+    max_bytes = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024 + 1024 * 1024
+    if content_length is not None and content_length.isdigit() and int(content_length) > max_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Fichier trop volumineux (max {settings.MAX_UPLOAD_SIZE_MB} Mo)",
+        )
     return await process_upload(file, storage)
 
 
