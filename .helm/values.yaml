@@ -171,6 +171,14 @@ redis:
 keydb:
   enabled: true
   fullnameOverride: keydb
+  # UN SEUL nœud, impérativement : KeyDB multi-master à réplication
+  # asynchrone n'est pas un broker Celery fiable — avec 3 nœuds, un même
+  # message de tâche peut être consommé par plusieurs workers avant que
+  # sa suppression ne se propage (observé en prod le 2026-06-12 : 4 jobs
+  # GPU facturés pour un seul upscale). Le pub/sub SSE souffre du même
+  # problème avec multi-master-no-forward. La persistence est activée ;
+  # l'indispo pendant un reschedule du pod est acceptable pour ce broker.
+  nodes: 1
   annotations:
     argocd.argoproj.io/sync-wave: "-2"
   service:

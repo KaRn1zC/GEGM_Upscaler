@@ -201,60 +201,88 @@ async def _step_upscale(job_id: str) -> None:
             input_mp = (job.input_width * job.input_height) / 1_000_000
             timeout_s = _compute_gpu_timeout(input_mp)
 
-            # Acheminement de l'image source vers le GPU. Deux modes :
-            # - URL présignée (storage S3 + backend compatible) : le worker
-            #   télécharge l'image lui-même — contourne la limite de payload
-            #   RunPod (~7 Mo de fichier en base64) et épargne la RAM du
-            #   worker Celery (aucun transit des bytes ici).
-            # - Bytes inline (dev local, Core ML, rollback worker) :
-            #   download puis base64.
-            image_data: bytes | None = None
-            image_url: str | None = None
-            if (
-                gpu.supports_url_input
-                and settings.GPU_INPUT_URL_ENABLED
-                and settings.STORAGE_BACKEND == "s3"
-            ):
-                # Expiration = timeout job + marge de queue : l'URL doit
-                # survivre au cold start + l'inférence, sans traîner des
-                # heures dans les logs RunPod (l'URL donne accès à l'input).
-                image_url = await storage.get_presigned_url(
-                    job.input_key, expires_in=timeout_s + 900
-                )
-                # Le handler n'accepte que du HTTPS joignable depuis RunPod —
-                # un endpoint S3 interne (MinIO http) retombe en inline.
-                if not image_url.startswith("https://"):
+            # Reprise idempotente : si un run GPU est déjà rattaché à ce job
+            # (message Celery rejoué — redelivery broker, double consommation
+            # — ou retry après coupure réseau), on se rattache au run en
+            # cours au lieu d'en soumettre et payer un deuxième. Observé en
+            # prod le 2026-06-12 : 4 jobs GPU facturés pour un seul upscale.
+            gpu_job_id: str | None = None
+            if job.gpu_run_id:
+                try:
+                    existing = await gpu.get_job_status(job.gpu_run_id)
+                except Exception as exc:
                     logger.warning(
-                        "URL présignée non-HTTPS ({url}) — fallback base64 inline",
-                        url=image_url.split("?")[0],
+                        "Run GPU existant {rid} injoignable ({err}) — resoumission",
+                        rid=job.gpu_run_id,
+                        err=str(exc),
                     )
-                    image_url = None
-            if image_url is None:
-                image_data = await storage.download(job.input_key)
-            publish_progress_sync(
-                redis, job_id, status="processing", progress=0.30, step="downloaded"
-            )
+                else:
+                    if existing.status != GPUJobStatus.FAILED:
+                        gpu_job_id = job.gpu_run_id
+                        logger.info(
+                            "Job {jid} : rattachement au run GPU actif {rid} (pas de resoumission)",
+                            jid=job_id,
+                            rid=gpu_job_id,
+                        )
 
-            # Soumission au GPU.
-            params = UpscaleParams(
-                scale_factor=job.scale_factor,
-                model_name=job.model_name,
-                output_format="png",
-            )
-            gpu_job_id = await gpu.submit_job(
-                image_data,
-                params,
-                image_url=image_url,
-                execution_timeout_s=timeout_s,
-            )
+            if gpu_job_id is None:
+                # Acheminement de l'image source vers le GPU. Deux modes :
+                # - URL présignée (storage S3 + backend compatible) : le
+                #   worker télécharge l'image lui-même — contourne la limite
+                #   de payload RunPod (~7 Mo de fichier en base64) et épargne
+                #   la RAM du worker Celery (aucun transit des bytes ici).
+                # - Bytes inline (dev local, Core ML, rollback worker) :
+                #   download puis base64.
+                image_data: bytes | None = None
+                image_url: str | None = None
+                if (
+                    gpu.supports_url_input
+                    and settings.GPU_INPUT_URL_ENABLED
+                    and settings.STORAGE_BACKEND == "s3"
+                ):
+                    # Expiration = timeout job + marge de queue : l'URL doit
+                    # survivre au cold start + l'inférence, sans traîner des
+                    # heures dans les logs RunPod (l'URL donne accès à l'input).
+                    image_url = await storage.get_presigned_url(
+                        job.input_key, expires_in=timeout_s + 900
+                    )
+                    # Le handler n'accepte que du HTTPS joignable depuis
+                    # RunPod — un endpoint S3 interne (MinIO http) retombe
+                    # en inline.
+                    if not image_url.startswith("https://"):
+                        logger.warning(
+                            "URL présignée non-HTTPS ({url}) — fallback base64 inline",
+                            url=image_url.split("?")[0],
+                        )
+                        image_url = None
+                if image_url is None:
+                    image_data = await storage.download(job.input_key)
+                publish_progress_sync(
+                    redis, job_id, status="processing", progress=0.30, step="downloaded"
+                )
 
-            # Persister le ``run_id`` GPU immédiatement pour que
-            # ``cancel_job`` puisse le retrouver et appeler
-            # ``RunPodBackend.cancel(run_id)`` upstream. Sans ce commit
-            # intermédiaire, une annulation utilisateur pendant l'inférence
-            # laisserait RunPod facturer le job jusqu'à completion.
-            job.gpu_run_id = gpu_job_id
-            await session.commit()
+                # Soumission au GPU.
+                params = UpscaleParams(
+                    scale_factor=job.scale_factor,
+                    model_name=job.model_name,
+                    output_format="png",
+                )
+                gpu_job_id = await gpu.submit_job(
+                    image_data,
+                    params,
+                    image_url=image_url,
+                    execution_timeout_s=timeout_s,
+                )
+
+                # Persister le ``run_id`` GPU immédiatement pour que
+                # ``cancel_job`` puisse le retrouver et appeler
+                # ``RunPodBackend.cancel(run_id)`` upstream, et pour que
+                # toute ré-exécution de cette tâche se rattache au run au
+                # lieu de resoumettre. Sans ce commit intermédiaire, une
+                # annulation utilisateur pendant l'inférence laisserait
+                # RunPod facturer le job jusqu'à completion.
+                job.gpu_run_id = gpu_job_id
+                await session.commit()
 
             publish_progress_sync(
                 redis, job_id, status="processing", progress=0.40, step="inference"
