@@ -177,7 +177,9 @@ keydb:
     # `true` dans server.sh — valeur que keydb-server refuse au démarrage.
     - multi-master-no-forward: "yes"
     - maxmemory: 400mb
-    - maxmemory-policy: allkeys-lru
+    # noeviction : KeyDB sert de broker Celery — on refuse les écritures à
+    # saturation plutôt que d'évincer silencieusement des tâches en attente.
+    - maxmemory-policy: noeviction
   topologySpreadConstraints:
    - maxSkew: 1
      topologyKey: "topology.kubernetes.io/zone"
