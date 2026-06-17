@@ -146,8 +146,9 @@ test.describe("Flow upscale + cancel + compare", () => {
 
     await cancelBtn.click();
 
-    // Après cancel, le job disparaît de l'UI (le store le filtre localement
-    // après succès du DELETE — mocké à 204 dans fixtures).
+    // Après cancel (POST /cancel mocké à 204), le job passe en `cancelled` :
+    // il quitte "En cours" pour "Récents" et son bouton "Annuler" est
+    // remplacé par "Supprimer" — donc plus aucun bouton "Annuler" visible.
     await expect(cancelBtn).not.toBeVisible({ timeout: 5_000 });
   });
 

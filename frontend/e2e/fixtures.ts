@@ -136,6 +136,40 @@ export const test = base.extend<{ apiMocks: ApiMocks }>({
           }
         });
 
+        // POST /api/jobs/{id}/cancel — annulation (le job reste listé, passe
+        // en cancelled). Enregistrée après la route générique → priorité
+        // Playwright (la plus récente l'emporte).
+        await page.route(/\/api\/jobs\/[^/?]+\/cancel(\?.*)?$/, async (route: Route) => {
+          if (route.request().method() === "POST") {
+            const url = new URL(route.request().url());
+            const id = url.pathname.split("/").slice(-2, -1)[0];
+            state.jobs = state.jobs.map((j) =>
+              j.id === id ? { ...j, status: "cancelled" } : j,
+            );
+            await route.fulfill({ status: 204 });
+          } else {
+            await route.continue();
+          }
+        });
+
+        // POST /api/jobs/bulk-delete — suppression groupée des jobs terminés.
+        await page.route(/\/api\/jobs\/bulk-delete(\?.*)?$/, async (route: Route) => {
+          const { job_ids } = JSON.parse(route.request().postData() ?? "{}") as {
+            job_ids: string[];
+          };
+          const terminal = new Set(["completed", "failed", "cancelled"]);
+          const requested = new Set(job_ids);
+          const before = state.jobs.length;
+          state.jobs = state.jobs.filter(
+            (j) => !(requested.has(j.id) && terminal.has(j.status)),
+          );
+          await route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify({ deleted: before - state.jobs.length }),
+          });
+        });
+
         // GET /api/users/me — profil utilisateur
         await page.route(/\/api\/users\/me(\?.*)?$/, async (route: Route) => {
           await route.fulfill({
