@@ -133,12 +133,12 @@ AUTOCAST_FP16 = os.environ.get("AUTOCAST_FP16", "true").lower() in ("1", "true",
 _FP16_SAFE_MODELS: set[str] = {"drct-l"}
 
 # torch.compile (Triton/Inductor) : fusionne l'attention fenêtrée manuelle de
-# DRCT (aucun kernel flash) et les petites convs — gain attendu 1.3-3x sur une
-# shape d'entrée fixe (512x512). Désactivé par défaut : Inductor peut casser
-# ou diverger sur les ops custom de DRCT (window_partition, roll) — on l'active
-# par env pour A/B, avec fallback eager auto si la compilation échoue au warm-up.
-# La compilation se paie une fois au warm-up (1-3 min), amortie sur les tuiles.
-TORCH_COMPILE = os.environ.get("TORCH_COMPILE", "false").lower() in ("1", "true", "yes")
+# DRCT (aucun kernel flash) — mesuré ~6.7x sur RTX 5090 (9.9 → 1.47 s/tuile),
+# soit ~25x cumulé avec TF32. Activé par défaut. Fallback eager automatique si
+# Inductor casse sur une op custom (window_partition, roll). La compilation se
+# paie une fois au warm-up (~1-3 min), amortie par l'Idle Timeout de l'endpoint
+# + le pre-warm ping. Désactivable en urgence via TORCH_COMPILE=false.
+TORCH_COMPILE = os.environ.get("TORCH_COMPILE", "true").lower() in ("1", "true", "yes")
 TORCH_COMPILE_MODE = os.environ.get("TORCH_COMPILE_MODE", "default")
 
 
@@ -386,11 +386,11 @@ def load_model(model_name: str, scale_factor: int) -> torch.nn.Module:
         logger.info("Warm-up cuDNN en cours (JIT compilation première tuile)...")
         t0 = time.time()
         try:
-            # Même contexte autocast que l'inférence réelle : les kernels JIT
-            # compilés ici doivent être ceux du dtype effectivement utilisé.
+            # Même contexte autocast ET même layout de tenseur que l'inférence
+            # réelle : les kernels JIT (et le graphe torch.compile) compilés ici
+            # doivent matcher exactement le forward réel, sinon recompilation.
             with torch.no_grad(), _autocast_ctx(model_name):
-                dummy = torch.randn(1, 3, TILE_SIZE, TILE_SIZE, device=DEVICE)
-                _ = model(dummy)
+                _ = model(_warmup_input())
                 torch.cuda.synchronize()
         except Exception as exc:
             if model is eager_model:
@@ -401,7 +401,7 @@ def load_model(model_name: str, scale_factor: int) -> torch.nn.Module:
             )
             model = eager_model
             with torch.no_grad(), _autocast_ctx(model_name):
-                _ = model(torch.randn(1, 3, TILE_SIZE, TILE_SIZE, device=DEVICE))
+                _ = model(_warmup_input())
                 torch.cuda.synchronize()
         logger.info("Warm-up cuDNN terminé en {elapsed:.1f}s", elapsed=time.time() - t0)
 
@@ -419,6 +419,18 @@ def _preprocess_tile(tile: np.ndarray) -> torch.Tensor:
     """Convertit une tuile HWC uint8 en tenseur NCHW float32 [0, 1]."""
     tensor = torch.from_numpy(tile).float() / 255.0
     return tensor.permute(2, 0, 1).unsqueeze(0).to(DEVICE)
+
+
+def _warmup_input() -> torch.Tensor:
+    """Tenseur de chauffe **identique en strides** à une vraie tuile.
+
+    Passe par ``_preprocess_tile`` (donc le ``permute`` non contigu) au lieu d'un
+    ``torch.randn`` contigu : sans ça, torch.compile compile une 1ʳᵉ fois sur le
+    tenseur contigu du warm-up puis **recompile** au 1ᵉʳ forward réel (strides
+    différents → échec de garde), doublant le coût de cold-start. Valeurs nulles :
+    seuls la shape et le layout comptent pour la compilation.
+    """
+    return _preprocess_tile(np.zeros((TILE_SIZE, TILE_SIZE, 3), dtype=np.uint8))
 
 
 def _pad_image_to_tile_grid(
@@ -684,7 +696,9 @@ def handler(event: dict[str, Any]) -> dict[str, Any]:
             # pour trancher le diagnostic Blackwell d'un seul job.
             if inputs.get("bench") and DEVICE == "cuda":
                 iters = max(1, int(inputs.get("bench_iters", 20)))
-                dummy = torch.randn(1, 3, TILE_SIZE, TILE_SIZE, device=DEVICE)
+                # Même layout qu'une vraie tuile (cf. _warmup_input) pour mesurer
+                # le graphe torch.compile réel sans déclencher de recompilation.
+                dummy = _warmup_input()
                 with torch.no_grad(), _autocast_ctx(ping_model_name):
                     _ = model(dummy)
                     torch.cuda.synchronize()
