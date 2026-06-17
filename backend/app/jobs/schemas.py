@@ -54,3 +54,24 @@ class JobResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     completed_at: datetime | None
+
+
+class BulkDeleteRequest(BaseModel):
+    """Liste d'identifiants de jobs à supprimer en lot.
+
+    Attributes:
+        job_ids: Jobs à supprimer. Les ids inconnus, d'un autre utilisateur
+            ou encore actifs sont ignorés silencieusement côté service.
+    """
+
+    job_ids: list[uuid.UUID]
+
+
+class BulkDeleteResponse(BaseModel):
+    """Résultat d'une suppression en lot.
+
+    Attributes:
+        deleted: Nombre de jobs effectivement supprimés.
+    """
+
+    deleted: int

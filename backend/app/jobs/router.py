@@ -16,8 +16,20 @@ from app.core.dependencies import get_current_user, get_db, get_storage
 from app.core.media import guess_media_type
 from app.core.redis import get_redis_pool
 from app.core.storage.interface import StorageBackend
-from app.jobs.schemas import JobCreate, JobResponse
-from app.jobs.service import cancel_job, create_job, get_job, list_user_jobs
+from app.jobs.schemas import (
+    BulkDeleteRequest,
+    BulkDeleteResponse,
+    JobCreate,
+    JobResponse,
+)
+from app.jobs.service import (
+    bulk_delete_jobs,
+    cancel_job,
+    create_job,
+    delete_job,
+    get_job,
+    list_user_jobs,
+)
 from app.jobs.sse import stream_job_progress
 from app.users.models import User
 
@@ -129,11 +141,47 @@ async def download_job_result(
     )
 
 
-@router.delete("/api/jobs/{job_id}", status_code=204)
-async def delete_job(
+@router.post("/api/jobs/{job_id}/cancel", status_code=204)
+async def cancel_job_endpoint(
     job_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> None:
-    """Annule un job en attente (statut pending ou queued uniquement)."""
+    """Annule un job actif (pending, queued ou processing).
+
+    Stoppe aussi l'inférence RunPod en cours le cas échéant (pas de
+    facturation orpheline). Pour retirer définitivement un job terminé et
+    ses fichiers, voir ``DELETE /api/jobs/{job_id}``.
+    """
     await cancel_job(job_id, user, db)
+
+
+@router.delete("/api/jobs/{job_id}", status_code=204)
+async def delete_job_endpoint(
+    job_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    storage: StorageBackend = Depends(get_storage),
+    user: User = Depends(get_current_user),
+) -> None:
+    """Supprime un job terminé : fichiers (input + output) puis ligne DB.
+
+    Réservé aux jobs terminés (completed, failed, cancelled) — un job actif
+    doit d'abord être annulé via ``POST /api/jobs/{job_id}/cancel``.
+    """
+    await delete_job(job_id, user, db, storage)
+
+
+@router.post("/api/jobs/bulk-delete", response_model=BulkDeleteResponse)
+async def bulk_delete_jobs_endpoint(
+    payload: BulkDeleteRequest,
+    db: AsyncSession = Depends(get_db),
+    storage: StorageBackend = Depends(get_storage),
+    user: User = Depends(get_current_user),
+) -> BulkDeleteResponse:
+    """Supprime en lot les jobs terminés de l'utilisateur (nettoyage de masse).
+
+    Tolérant : ignore silencieusement les ids inconnus, d'un autre user ou
+    encore actifs. Retourne le nombre réellement supprimé.
+    """
+    deleted = await bulk_delete_jobs(payload.job_ids, user, db, storage)
+    return BulkDeleteResponse(deleted=deleted)

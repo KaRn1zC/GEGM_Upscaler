@@ -30,8 +30,9 @@ from app.core.audit import AuditAction, record_audit
 from app.core.celery import celery_app
 from app.core.config import settings
 from app.core.dependencies import get_storage
-from app.jobs.cleanup import _delete_job_files
+from app.core.storage.interface import StorageBackend
 from app.jobs.models import Job
+from app.jobs.service import delete_job_files
 from app.users.models import User
 
 
@@ -85,7 +86,7 @@ async def delete_user_and_data(
     *,
     actor_email: str,
     action: AuditAction,
-    storage: object | None = None,
+    storage: StorageBackend | None = None,
 ) -> dict[str, int]:
     """Supprime tous les jobs + fichiers d'un user puis anonymise la ligne.
 
@@ -117,7 +118,7 @@ async def delete_user_and_data(
 
     files_deleted = 0
     for job in jobs:
-        files_deleted += await _delete_job_files(storage, job)
+        files_deleted += await delete_job_files(storage, job)
         await db.delete(job)
 
     # 2. Anonymisation de la ligne `users`. On préserve la FK (les

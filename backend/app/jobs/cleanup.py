@@ -23,6 +23,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.core.celery import celery_app
 from app.core.config import settings
 from app.core.dependencies import get_storage
+from app.core.storage.interface import StorageBackend
+from app.jobs.service import delete_job_files
 
 if TYPE_CHECKING:
     from app.jobs.models import Job
@@ -63,7 +65,7 @@ async def cleanup_old_jobs(
     db: AsyncSession,
     retention_days: int,
     *,
-    storage: object | None = None,
+    storage: StorageBackend | None = None,
 ) -> dict[str, int]:
     """Supprime les jobs terminés plus anciens que ``retention_days``.
 
@@ -110,7 +112,7 @@ async def cleanup_old_jobs(
     jobs_deleted = 0
     files_deleted = 0
     for job in old_jobs:
-        files_deleted += await _delete_job_files(storage, job)
+        files_deleted += await delete_job_files(storage, job)
         await db.delete(job)
         jobs_deleted += 1
 
@@ -122,37 +124,3 @@ async def cleanup_old_jobs(
         f=files_deleted,
     )
     return {"jobs_deleted": jobs_deleted, "files_deleted": files_deleted}
-
-
-async def _delete_job_files(storage: object, job: Job) -> int:
-    """Supprime les fichiers input et output d'un job (best-effort).
-
-    Les erreurs de suppression sont logguées mais n'interrompent pas le
-    cleanup — il vaut mieux supprimer l'enregistrement DB que laisser un
-    job fantôme à cause d'un fichier déjà absent côté storage.
-
-    Args:
-        storage: Instance ``StorageBackend``.
-        job: Instance ``Job`` à nettoyer.
-
-    Returns:
-        Nombre de fichiers effectivement supprimés (0, 1 ou 2).
-    """
-    deleted = 0
-    for key in (job.input_key, job.output_key):
-        if not key:
-            continue
-        try:
-            await storage.delete(key)  # type: ignore[attr-defined]
-            deleted += 1
-        except FileNotFoundError:
-            # Fichier déjà absent — pas d'erreur, juste un warning.
-            logger.debug("Fichier déjà absent : {k}", k=key)
-        except Exception as exc:
-            logger.warning(
-                "Échec suppression fichier {k} (job {id}) : {err}",
-                k=key,
-                id=str(job.id),
-                err=str(exc),
-            )
-    return deleted

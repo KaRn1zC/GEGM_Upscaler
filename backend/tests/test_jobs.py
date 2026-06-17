@@ -142,8 +142,69 @@ async def test_should_cancel_pending_job(mock_task: object, client: AsyncClient)
     create_resp = await client.post("/api/jobs", json={"input_key": key}, headers=AUTH_HEADERS)
     job_id = create_resp.json()["id"]
 
-    delete_resp = await client.delete(f"/api/jobs/{job_id}", headers=AUTH_HEADERS)
-    assert delete_resp.status_code == 204
+    cancel_resp = await client.post(f"/api/jobs/{job_id}/cancel", headers=AUTH_HEADERS)
+    assert cancel_resp.status_code == 204
 
     detail = await client.get(f"/api/jobs/{job_id}", headers=AUTH_HEADERS)
     assert detail.json()["status"] == "cancelled"
+
+
+# ── Suppression ──────────────────────────────────────────────────
+
+
+@patch("app.jobs.tasks.process_upscale")
+async def test_should_delete_cancelled_job_and_its_files(
+    mock_task: object, client: AsyncClient
+) -> None:
+    """Supprimer un job terminé retourne 204, retire la ligne ET l'input du storage."""
+    key = await _upload_image(client)
+    create_resp = await client.post("/api/jobs", json={"input_key": key}, headers=AUTH_HEADERS)
+    job_id = create_resp.json()["id"]
+    # Passe le job en état terminal (cancelled) pour autoriser la suppression.
+    await client.post(f"/api/jobs/{job_id}/cancel", headers=AUTH_HEADERS)
+
+    delete_resp = await client.delete(f"/api/jobs/{job_id}", headers=AUTH_HEADERS)
+    assert delete_resp.status_code == 204
+
+    # La ligne a disparu (404) et le fichier source n'est plus servi.
+    detail = await client.get(f"/api/jobs/{job_id}", headers=AUTH_HEADERS)
+    assert detail.status_code == 404
+    upload_resp = await client.get(f"/api/uploads/{key}", headers=AUTH_HEADERS)
+    assert upload_resp.status_code == 404
+
+
+@patch("app.jobs.tasks.process_upscale")
+async def test_should_refuse_delete_of_active_job(mock_task: object, client: AsyncClient) -> None:
+    """Supprimer un job encore actif retourne 409 (annuler d'abord)."""
+    key = await _upload_image(client)
+    create_resp = await client.post("/api/jobs", json={"input_key": key}, headers=AUTH_HEADERS)
+    job_id = create_resp.json()["id"]
+
+    delete_resp = await client.delete(f"/api/jobs/{job_id}", headers=AUTH_HEADERS)
+    assert delete_resp.status_code == 409
+
+
+@patch("app.jobs.tasks.process_upscale")
+async def test_should_bulk_delete_terminal_jobs_only(
+    mock_task: object, client: AsyncClient
+) -> None:
+    """Le bulk-delete supprime les jobs terminés et ignore les actifs."""
+    # Un job terminé (cancelled) + un job actif (pending).
+    key1 = await _upload_image(client)
+    j1 = (await client.post("/api/jobs", json={"input_key": key1}, headers=AUTH_HEADERS)).json()[
+        "id"
+    ]
+    await client.post(f"/api/jobs/{j1}/cancel", headers=AUTH_HEADERS)
+    key2 = await _upload_image(client)
+    j2 = (await client.post("/api/jobs", json={"input_key": key2}, headers=AUTH_HEADERS)).json()[
+        "id"
+    ]
+
+    resp = await client.post(
+        "/api/jobs/bulk-delete", json={"job_ids": [j1, j2]}, headers=AUTH_HEADERS
+    )
+    assert resp.status_code == 200
+    assert resp.json()["deleted"] == 1  # seul j1 (terminal) supprimé
+
+    assert (await client.get(f"/api/jobs/{j1}", headers=AUTH_HEADERS)).status_code == 404
+    assert (await client.get(f"/api/jobs/{j2}", headers=AUTH_HEADERS)).status_code == 200

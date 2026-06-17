@@ -25,6 +25,14 @@ from app.users.models import User
 # - HAT-L  x2 : poids `hat-l_x2.pth`  (XPixelGroup/HAT, ~165 MB)
 _SCALE_TO_MODEL: dict[int, str] = {2: "hat-l", 4: "drct-l"}
 
+# États terminaux : un job dans l'un de ces statuts ne tourne plus, il est
+# donc supprimable (suppression réelle). Les jobs actifs s'annulent d'abord.
+_TERMINAL_STATES: set[JobStatus] = {
+    JobStatus.COMPLETED,
+    JobStatus.FAILED,
+    JobStatus.CANCELLED,
+}
+
 
 def _model_for_scale(scale_factor: int) -> str:
     """Retourne le nom du modèle SR à utiliser pour un ``scale_factor`` donné.
@@ -195,8 +203,7 @@ async def cancel_job(job_id: uuid.UUID, user: User, db: AsyncSession) -> None:
     """
     job = await get_job(job_id, user, db)
 
-    non_cancellable = {JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED}
-    if job.status in non_cancellable:
+    if job.status in _TERMINAL_STATES:
         raise HTTPException(
             status_code=409,
             detail=f"Impossible d'annuler un job en statut '{job.status}'",
@@ -260,3 +267,107 @@ async def _cancel_runpod_upstream(gpu_run_id: str) -> None:
         )
     finally:
         await backend.close()
+
+
+async def delete_job_files(storage: StorageBackend, job: Job) -> int:
+    """Supprime les fichiers input et output d'un job du storage (best-effort).
+
+    Les erreurs (fichier déjà absent, storage momentanément indisponible) sont
+    logguées mais n'interrompent pas l'appelant : mieux vaut retirer la ligne
+    DB que laisser un job fantôme à cause d'un fichier orphelin. Partagé entre
+    la suppression à la demande (``delete_job``) et le cleanup périodique.
+
+    Args:
+        storage: Backend de stockage actif.
+        job: Job dont on supprime les fichiers.
+
+    Returns:
+        Nombre de fichiers effectivement supprimés (0, 1 ou 2).
+    """
+    deleted = 0
+    for key in (job.input_key, job.output_key):
+        if not key:
+            continue
+        try:
+            await storage.delete(key)
+            deleted += 1
+        except FileNotFoundError:
+            logger.debug("Fichier déjà absent : {k}", k=key)
+        except Exception as exc:
+            logger.warning(
+                "Échec suppression fichier {k} (job {id}) : {err}",
+                k=key,
+                id=str(job.id),
+                err=str(exc),
+            )
+    return deleted
+
+
+async def delete_job(
+    job_id: uuid.UUID, user: User, db: AsyncSession, storage: StorageBackend
+) -> None:
+    """Supprime un job terminé : fichiers (input + output) puis ligne DB.
+
+    Réservé aux jobs dans un état terminal (completed, failed, cancelled) :
+    un job encore actif doit d'abord être annulé (``cancel_job``) pour ne pas
+    laisser tourner une inférence GPU orpheline.
+
+    Args:
+        job_id: Identifiant UUID du job à supprimer.
+        user: Utilisateur authentifié (vérification de propriété).
+        db: Session de base de données.
+        storage: Backend de stockage pour purger les fichiers.
+
+    Raises:
+        HTTPException: 404 si le job n'existe pas ou n'appartient pas au user.
+        HTTPException: 409 si le job est encore actif (annuler d'abord).
+    """
+    job = await get_job(job_id, user, db)
+
+    if job.status not in _TERMINAL_STATES:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Annulez le job avant de le supprimer (statut '{job.status}')",
+        )
+
+    await delete_job_files(storage, job)
+    await db.delete(job)
+    await db.commit()
+
+
+async def bulk_delete_jobs(
+    job_ids: list[uuid.UUID], user: User, db: AsyncSession, storage: StorageBackend
+) -> int:
+    """Supprime en lot les jobs terminés de l'utilisateur parmi ``job_ids``.
+
+    Tolérant : les ids inconnus, appartenant à un autre user ou encore actifs
+    sont silencieusement ignorés (on supprime ce qui est légitimement
+    supprimable). Pensé pour le nettoyage de masse d'un shooting depuis l'UI.
+
+    Args:
+        job_ids: Identifiants des jobs à supprimer.
+        user: Utilisateur authentifié (filtre de propriété).
+        db: Session de base de données.
+        storage: Backend de stockage pour purger les fichiers.
+
+    Returns:
+        Nombre de jobs effectivement supprimés.
+    """
+    if not job_ids:
+        return 0
+
+    result = await db.execute(
+        select(Job).where(
+            Job.id.in_(job_ids),
+            Job.user_id == user.id,
+            Job.status.in_(_TERMINAL_STATES),
+        )
+    )
+    jobs = list(result.scalars().all())
+
+    for job in jobs:
+        await delete_job_files(storage, job)
+        await db.delete(job)
+    await db.commit()
+
+    return len(jobs)
