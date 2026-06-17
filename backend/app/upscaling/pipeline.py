@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -298,9 +298,24 @@ async def _step_upscale(job_id: str) -> None:
                 redis, job_id, status="processing", progress=0.40, step="inference"
             )
 
-            # Polling jusqu'à completion — le hook ``on_tick`` émet une
-            # progression continue entre 0.40 et 0.70 pour que la barre
-            # frontend ne reste pas figée pendant l'inférence RunPod.
+            # Heartbeat : rafraîchit ``updated_at`` du job pour signaler au
+            # reaper qu'un job long est vivant. UPDATE ciblé sur la seule
+            # colonne ``updated_at`` — ne lit ni n'écrit ``status``, donc un
+            # CANCELLED posé en parallèle par l'API n'est jamais écrasé.
+            async def _touch_heartbeat() -> None:
+                from sqlalchemy import func as sa_func
+                from sqlalchemy import update as sa_update
+
+                await session.execute(
+                    sa_update(Job)
+                    .where(Job.id == uuid.UUID(job_id))
+                    .values(updated_at=sa_func.now())
+                )
+                await session.commit()
+
+            # Polling jusqu'à completion — émet une progression continue
+            # entre 0.40 et 0.70 pour que la barre frontend ne reste pas
+            # figée pendant l'inférence RunPod, et heartbeat anti-reaper.
             result = await _wait_for_gpu_result(
                 gpu,
                 gpu_job_id,
@@ -308,6 +323,7 @@ async def _step_upscale(job_id: str) -> None:
                 job_id=job_id,
                 input_mp=input_mp,
                 max_elapsed_s=float(timeout_s),
+                on_heartbeat=_touch_heartbeat,
             )
             if result.status != GPUJobStatus.COMPLETED:
                 raise RuntimeError(result.error or "Inférence GPU échouée")
@@ -687,11 +703,16 @@ def _try_build_cloud_backend() -> GPUBackend | None:
 def _compute_gpu_timeout(input_mp: float) -> int:
     """Calcule le timeout d'un job GPU à partir de la taille de l'image.
 
-    Basé sur la durée estimée (60 s + 50 s/MP, calibrée sur les logs
-    RunPod) avec un facteur 2 de marge, borné entre 10 minutes et
-    ``settings.GPU_JOB_TIMEOUT_MAX_S``. La même valeur est transmise à
-    RunPod (``policy.executionTimeout``) et utilisée comme plafond du
-    polling côté client — les deux bouts de la chaîne sont alignés.
+    Durée estimée ``120 s + 200 s/MP`` (base = chargement modèle + warm-up
+    cuDNN ; 200 s/MP recalibré sur DRCT-L x4 — ~37 s/tuile, ~5 tuiles/MP —
+    mesuré sur RTX 5090 le 2026-06-17), avec un facteur 2 de marge, borné
+    entre 10 minutes et ``settings.GPU_JOB_TIMEOUT_MAX_S``. La même valeur
+    est transmise à RunPod (``policy.executionTimeout``) et sert de plafond
+    de polling côté client — les deux bouts de la chaîne sont alignés.
+
+    L'ancienne calibration (50 s/MP) sous-estimait d'un facteur ~4 le coût
+    réel de DRCT-L x4 : un upscale de 12,5 MP coupé à mi-parcours faute de
+    budget temps (cf. incident executionTimeout du 2026-06-17).
 
     Args:
         input_mp: Mégapixels de l'image source.
@@ -699,7 +720,7 @@ def _compute_gpu_timeout(input_mp: float) -> int:
     Returns:
         Timeout en secondes.
     """
-    estimated = 60.0 + 50.0 * input_mp
+    estimated = 120.0 + 200.0 * input_mp
     return int(min(max(2.0 * estimated, 600.0), float(settings.GPU_JOB_TIMEOUT_MAX_S)))
 
 
@@ -711,6 +732,8 @@ async def _wait_for_gpu_result(
     job_id: str | None = None,
     input_mp: float = 1.0,
     max_elapsed_s: float = 600.0,
+    on_heartbeat: Callable[[], Awaitable[None]] | None = None,
+    heartbeat_interval_s: float = 60.0,
 ) -> GPUJobResult:
     """Poll le statut du job GPU jusqu'à complétion ou échec.
 
@@ -736,6 +759,12 @@ async def _wait_for_gpu_result(
         input_mp: Mégapixels de l'image source, pour caler la durée estimée.
         max_elapsed_s: Plafond de polling en secondes — calculé par
             ``_compute_gpu_timeout`` selon la taille de l'image.
+        on_heartbeat: Callback appelé toutes les ``heartbeat_interval_s``
+            pendant le polling. Sert à rafraîchir l'``updated_at`` du job en
+            base pour que le reaper ne fauche pas un job long mais bien
+            vivant (cf. ``STALE_JOB_THRESHOLD_MINUTES``). Une exception du
+            callback est loggée mais n'interrompt jamais le polling.
+        heartbeat_interval_s: Cadence du heartbeat (60 s par défaut).
 
     Returns:
         ``GPUJobResult`` final.
@@ -750,11 +779,13 @@ async def _wait_for_gpu_result(
     # laisserait légitimement finir.
     max_elapsed = max_elapsed_s + 300.0
     elapsed = 0.0
+    last_heartbeat = 0.0
     cold_start_detected = False
 
-    # Estimation de la durée d'inférence : 60s base + 50s par MP.
-    # Calibré sur les logs RunPod (1.78 MP ≈ 90-100s active inference).
-    estimated_duration = max(60.0, 60.0 + 50.0 * input_mp)
+    # Estimation de la durée d'inférence : 120s base + 200s par MP.
+    # Recalibré sur DRCT-L x4 (RTX 5090, ~37s/tuile) — l'ancienne valeur
+    # (50s/MP) figeait la barre à 70% pendant des dizaines de minutes.
+    estimated_duration = max(60.0, 120.0 + 200.0 * input_mp)
     can_publish = redis is not None and job_id is not None
 
     while elapsed < max_elapsed:
@@ -789,6 +820,21 @@ async def _wait_for_gpu_result(
                 progress=round(tick_progress, 3),
                 step="inference",
             )
+
+        # Heartbeat anti-reaper : sur un job long (grosse image, plusieurs
+        # heures), la progression part dans Redis mais l'``updated_at`` en
+        # base ne bouge pas — le reaper le prendrait pour un zombie. On le
+        # rafraîchit périodiquement. Une erreur ici ne doit jamais tuer le job.
+        if on_heartbeat is not None and elapsed - last_heartbeat >= heartbeat_interval_s:
+            try:
+                await on_heartbeat()
+            except Exception as exc:
+                logger.warning(
+                    "Heartbeat du job GPU {id} échoué : {err}",
+                    id=gpu_job_id,
+                    err=str(exc),
+                )
+            last_heartbeat = elapsed
 
         # Polling plus lent en cold start pour ne pas surcharger l'API RunPod.
         if cold_start_detected and result.status == GPUJobStatus.QUEUED:

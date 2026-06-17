@@ -112,13 +112,15 @@ config:
 
   # Limites d'upload et de jobs GPU (cf. backend/app/core/config.py).
   # MAX_UPLOAD_SIZE_MB doit rester cohérent avec api.resources.limits.memory
-  # (le fichier transite en RAM) ; GPU_JOB_TIMEOUT_MAX_S doit rester ≤ à
-  # l'Execution Timeout de l'endpoint RunPod (3600 s).
+  # (le fichier transite en RAM) ; l'Execution Timeout de l'endpoint RunPod
+  # doit être ≥ GPU_JOB_TIMEOUT_MAX_S (6 h), sinon RunPod coupe avant nous.
   MAX_UPLOAD_SIZE_MB: "300"
   # 64 MP couvre tous les boîtiers plein format ; borné par le budget temps
-  # GPU (60+50xMP s ≤ GPU_JOB_TIMEOUT_MAX_S) et la RAM du worker RunPod.
+  # GPU (120+200xMP s, plafonné par GPU_JOB_TIMEOUT_MAX_S) et la RAM worker.
   MAX_INPUT_MEGAPIXELS: "64"
-  GPU_JOB_TIMEOUT_MAX_S: "3600"
+  # 6 h : laisse finir un upscale lourd (gros DRCT-L ×4) sans coupure. Le
+  # gaspillage au repos est borné par l'Idle Timeout (5 min) de l'endpoint.
+  GPU_JOB_TIMEOUT_MAX_S: "21600"
 
   # Storage S3 OVH — input (uploads) et output (résultats)
   S3_BUCKET: "upscaler-gegmgroup-com-inbox"

@@ -181,6 +181,48 @@ async def test_should_raise_on_timeout() -> None:
     mock_gpu.cancel_job.assert_awaited_once_with("job-123")
 
 
+async def test_should_heartbeat_on_non_terminal_ticks() -> None:
+    """Le heartbeat est émis à chaque tick non terminal (anti-reaper sur les
+    jobs longs) et jamais après un statut terminal."""
+    responses = [
+        GPUJobResult(status=GPUJobStatus.QUEUED, progress=0.0),
+        GPUJobResult(status=GPUJobStatus.PROCESSING, progress=0.5),
+        GPUJobResult(status=GPUJobStatus.COMPLETED, progress=1.0),
+    ]
+    mock_gpu = MagicMock()
+    mock_gpu.get_job_status = AsyncMock(side_effect=responses)
+    heartbeat = AsyncMock()
+
+    with patch("app.upscaling.pipeline.asyncio.sleep", new_callable=AsyncMock):
+        result = await _wait_for_gpu_result(
+            mock_gpu, "job-123", on_heartbeat=heartbeat, heartbeat_interval_s=0.0
+        )
+
+    assert result.status == GPUJobStatus.COMPLETED
+    # QUEUED + PROCESSING = 2 ticks non terminaux → 2 heartbeats, rien après COMPLETED.
+    assert heartbeat.await_count == 2
+
+
+async def test_should_survive_heartbeat_failure() -> None:
+    """Une erreur du heartbeat est avalée : le polling continue et le job
+    aboutit quand même."""
+    responses = [
+        GPUJobResult(status=GPUJobStatus.PROCESSING, progress=0.5),
+        GPUJobResult(status=GPUJobStatus.COMPLETED, progress=1.0),
+    ]
+    mock_gpu = MagicMock()
+    mock_gpu.get_job_status = AsyncMock(side_effect=responses)
+    heartbeat = AsyncMock(side_effect=RuntimeError("DB indisponible"))
+
+    with patch("app.upscaling.pipeline.asyncio.sleep", new_callable=AsyncMock):
+        result = await _wait_for_gpu_result(
+            mock_gpu, "job-123", on_heartbeat=heartbeat, heartbeat_interval_s=0.0
+        )
+
+    assert result.status == GPUJobStatus.COMPLETED
+    heartbeat.assert_awaited()
+
+
 # ──────────────────────────────────────────────────────────────
 # _compute_gpu_timeout
 # ──────────────────────────────────────────────────────────────
@@ -192,9 +234,9 @@ def test_should_floor_gpu_timeout_at_ten_minutes() -> None:
 
 
 def test_should_scale_gpu_timeout_with_megapixels() -> None:
-    """Le timeout suit la formule 2 x (60 + 50/MP) au-delà du plancher."""
-    # 20 MP : 2 x (60 + 1000) = 2120 s — sous le plafond de 3600 s.
-    assert _compute_gpu_timeout(20.0) == 2120
+    """Le timeout suit la formule 2 x (120 + 200/MP) au-delà du plancher."""
+    # 20 MP : 2 x (120 + 4000) = 8240 s — sous le plafond de 21600 s.
+    assert _compute_gpu_timeout(20.0) == 8240
 
 
 def test_should_cap_gpu_timeout_at_settings_max() -> None:

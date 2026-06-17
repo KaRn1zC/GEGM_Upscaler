@@ -53,8 +53,10 @@ class Settings(BaseSettings):
     STORAGE_RETENTION_DAYS: int = 30
     # Seuil au-delà duquel un job bloqué en PROCESSING (sans update
     # ``updated_at``) est considéré comme zombie et marqué FAILED par la
-    # tâche Beat ``jobs.reaper.reap_stale_jobs``. 30 min couvre les pires
-    # cold-starts RunPod (~15 min) + une marge de sécurité.
+    # tâche Beat ``jobs.reaper.reap_stale_jobs``. Reste à 30 min même si un
+    # upscale peut désormais tourner des heures : le polling émet un
+    # heartbeat (pipeline ``_touch_heartbeat``) qui rafraîchit ``updated_at``
+    # toutes les 60 s, donc seul un worker réellement mort franchit ce seuil.
     STALE_JOB_THRESHOLD_MINUTES: int = 30
 
     # ── Limites d'upload ─────────────────────────────────────────
@@ -66,8 +68,8 @@ class Settings(BaseSettings):
     # Plafond en mégapixels de l'image SOURCE. Garde-fou contre les
     # decompression bombs et borne opérationnelle : 64 MP couvre tous les
     # boîtiers plein format (61 MP max) tout en restant dans le budget
-    # temps GPU (durée estimée 60+50xMP ≤ GPU_JOB_TIMEOUT_MAX_S) et la
-    # RAM du worker RunPod. À remonter après la phase 2 (merge optimisé).
+    # temps GPU (durée estimée 120+200xMP, plafonnée par
+    # GPU_JOB_TIMEOUT_MAX_S) et la RAM du worker RunPod.
     MAX_INPUT_MEGAPIXELS: int = 64
 
     # ── Auth ─────────────────────────────────────────────────────
@@ -89,11 +91,13 @@ class Settings(BaseSettings):
     COREML_MODEL_DIR: str = "models"
     RUNPOD_API_KEY: SecretStr = SecretStr("")
     RUNPOD_ENDPOINT_ID: str = ""
-    # Plafond du timeout dynamique d'un job GPU. Le timeout effectif est
-    # calculé par image (60 s + 50 s/MP, facteur 2 de marge) puis borné entre
-    # 600 s et cette valeur. Doit rester ≤ à l'Execution Timeout configuré
-    # sur l'endpoint RunPod (3600 s), sinon RunPod coupe avant nous.
-    GPU_JOB_TIMEOUT_MAX_S: int = 3600
+    # Plafond du timeout dynamique d'un job GPU (6 h). Le timeout effectif
+    # est calculé par image (120 s + 200 s/MP, facteur 2 de marge — cf.
+    # ``_compute_gpu_timeout``) puis borné entre 600 s et cette valeur.
+    # Couvre le pire cas (64 MP en DRCT-L x4 ≈ 3,3 h sur RTX 5090). La même
+    # valeur part en ``policy.executionTimeout`` RunPod : l'Execution Timeout
+    # de l'endpoint doit être ≥ à ce plafond, sinon RunPod coupe avant nous.
+    GPU_JOB_TIMEOUT_MAX_S: int = 21600
     # Achemine l'image source au worker GPU par URL S3 présignée (gros
     # fichiers, contourne la limite de payload RunPod). Désactivable en
     # urgence si le worker déployé ne supporte pas encore `image_url`
