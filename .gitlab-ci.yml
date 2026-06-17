@@ -12,8 +12,10 @@
 # v*.*.*), run manuel.
 
 # Règle partagée : pipeline release complet (lint-test + build + deploy).
+# Déclenché par : le tag `prod` (legacy), la branche `prod` (ref suivie par
+# ArgoCD pour le chart — un push sur cette branche déploie), ou un tag v*.*.*.
 .release_tag_rule: &release_tag_rule
-  if: '$CI_COMMIT_TAG == "prod" || $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
+  if: '$CI_COMMIT_TAG == "prod" || $CI_COMMIT_BRANCH == "prod" || $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
 
 stages:
   - lint-test
@@ -24,6 +26,9 @@ workflow:
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main"'
+    # Branche prod : ref de déploiement suivie par ArgoCD — un push doit
+    # lancer le pipeline release (build + scan + bump GitOps).
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "prod"'
     - if: '$CI_COMMIT_TAG'
     - if: '$CI_PIPELINE_SOURCE == "web"'
     - when: never
