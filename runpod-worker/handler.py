@@ -54,6 +54,14 @@ from PIL import Image
 # sur toutes les tuiles suivantes qui partagent la même shape 512x512.
 torch.backends.cudnn.benchmark = True
 
+# TF32 sur les Tensor Cores (Ampere+/Blackwell) : accélère les matmuls et
+# convolutions fp32 résiduels (tout ce que l'autocast fp16 ne couvre pas)
+# sans perte visible à l'échelle uint8. PyTorch le désactive par défaut
+# depuis 1.12 (fp32 strict, sans Tensor Cores) — on le réactive explicitement.
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
+torch.set_float32_matmul_precision("high")
+
 # Configuration depuis les variables d'environnement.
 # ``TILE_SIZE`` et ``TILE_OVERLAP`` doivent être des multiples de 16 (window_size
 # DRCT/HAT) pour que le padding d'image produise des tuiles compatibles avec
@@ -63,6 +71,23 @@ DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "drct-l")
 TILE_SIZE = int(os.environ.get("TILE_SIZE", "512"))
 TILE_OVERLAP = int(os.environ.get("TILE_OVERLAP", "32"))
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
+# Diagnostic GPU loggé une fois au cold-start (investigation perf 2026-06-17).
+# Tranche la lenteur Blackwell : si la capability est (12, 0) — sm_120, RTX
+# 5090 — mais que ``sm_120`` n'apparaît PAS dans ``get_arch_list()``, le binaire
+# torch n'embarque aucun kernel natif et retombe en PTX JIT (lent, warm-up
+# interminable). Si sm_120 est présent, la lenteur vient d'ailleurs.
+if DEVICE == "cuda":
+    logger.info(
+        "GPU diagnostic — torch={tv} cuda={cv} cudnn={cu} device={dev} "
+        "capability={cap} arch_list={arch}",
+        tv=torch.__version__,
+        cv=torch.version.cuda,
+        cu=torch.backends.cudnn.version(),
+        dev=torch.cuda.get_device_name(0),
+        cap=torch.cuda.get_device_capability(0),
+        arch=torch.cuda.get_arch_list(),
+    )
 
 # Stockage du résultat : ``inline`` = base64 dans le payload (limité à
 # ~20 MB par RunPod), ``s3`` = upload sur un bucket S3-compatible et
@@ -612,8 +637,41 @@ def handler(event: dict[str, Any]) -> dict[str, Any]:
             # (x2 ou x4) est chargé — utile pour pré-warmer la bonne
             # variante avant un batch.
             ping_scale = int(inputs.get("scale_factor", 4))
-            load_model(inputs.get("model_name", DEFAULT_MODEL), ping_scale)
+            ping_model_name = inputs.get("model_name", DEFAULT_MODEL)
+            model = load_model(ping_model_name, ping_scale)
             logger.info("Warm-up ping reçu — worker chaud et modèle chargé")
+
+            # Mode bench (investigation perf) : mesure le coût GPU pur par
+            # tuile en régime stable, sans lancer d'upscale réel. Un forward
+            # de chauffe hors mesure, puis N forwards chronométrés avec UN
+            # seul cuda.synchronize() après la boucle — isole l'inférence des
+            # syncs CPU du vrai pipeline. Renvoie aussi arch_list/capability
+            # pour trancher le diagnostic Blackwell d'un seul job.
+            if inputs.get("bench") and DEVICE == "cuda":
+                iters = max(1, int(inputs.get("bench_iters", 20)))
+                dummy = torch.randn(1, 3, TILE_SIZE, TILE_SIZE, device=DEVICE)
+                with torch.no_grad(), _autocast_ctx(ping_model_name):
+                    _ = model(dummy)
+                    torch.cuda.synchronize()
+                    t0 = time.time()
+                    for _ in range(iters):
+                        _ = model(dummy)
+                    torch.cuda.synchronize()
+                per_tile = (time.time() - t0) / iters
+                logger.info(
+                    "Bench — {n} forwards 1 tuile {ts}x{ts} : {pt:.3f}s/tuile",
+                    n=iters,
+                    ts=TILE_SIZE,
+                    pt=per_tile,
+                )
+                return {
+                    "status": "ready",
+                    "per_tile_s": round(per_tile, 3),
+                    "iters": iters,
+                    "tile_size": TILE_SIZE,
+                    "arch_list": torch.cuda.get_arch_list(),
+                    "capability": list(torch.cuda.get_device_capability(0)),
+                }
             return {"status": "ready"}
 
         image_b64 = inputs.get("image")
