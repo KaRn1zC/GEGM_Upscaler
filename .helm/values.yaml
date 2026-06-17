@@ -163,22 +163,26 @@ database:
 
 # ─── Redis / KeyDB ──────────────────────────────────────────────────────────
 # KeyDB = drop-in Redis. Le client `redis.asyncio` est compatible.
+#
+# ⚠️ Broker Celery + result backend + pub/sub SSE EXIGENT un primaire unique
+# (BRPOP atomique, lecture après écriture, pub/sub intra-nœud). KeyDB tourne
+# en active-active 3 nœuds (1 par DC, choix infra) à réplication asynchrone :
+# y connecter l'app via le service load-balancé `keydb` répartit producteurs
+# et consommateurs sur des nœuds différents → mêmes messages consommés deux
+# fois (4 jobs GPU pour un upscale, observé le 2026-06-12), pub/sub SSE muet
+# entre nœuds (multi-master-no-forward), et risque de perte de message.
+# On épingle donc TOUT le trafic app sur le pod `keydb-0` via le service
+# headless (DNS stable du StatefulSet) : sémantique single-primary restaurée,
+# les nœuds 1 et 2 restent des réplicas async/standby. La topologie 3 nœuds
+# de l'infra est préservée.
 redis:
-  host: "keydb"  # ex: gegm-upscaler-keydb
+  host: "keydb-0.keydb-headless"  # pod 0 du StatefulSet (DNS headless stable)
   port: 6379
   database: 0
 
 keydb:
   enabled: true
   fullnameOverride: keydb
-  # UN SEUL nœud, impérativement : KeyDB multi-master à réplication
-  # asynchrone n'est pas un broker Celery fiable — avec 3 nœuds, un même
-  # message de tâche peut être consommé par plusieurs workers avant que
-  # sa suppression ne se propage (observé en prod le 2026-06-12 : 4 jobs
-  # GPU facturés pour un seul upscale). Le pub/sub SSE souffre du même
-  # problème avec multi-master-no-forward. La persistence est activée ;
-  # l'indispo pendant un reschedule du pod est acceptable pour ce broker.
-  nodes: 1
   annotations:
     argocd.argoproj.io/sync-wave: "-2"
   service:
@@ -198,6 +202,11 @@ keydb:
     # noeviction : KeyDB sert de broker Celery — on refuse les écritures à
     # saturation plutôt que d'évincer silencieusement des tâches en attente.
     - maxmemory-policy: noeviction
+    # AOF activé (le subchart le met à `no`) : l'app est épinglée sur
+    # keydb-0, qui devient le nœud broker unique. Sans AOF, un reschedule
+    # du pod viderait la file Celery ; avec, la file est rejouée depuis le
+    # volume persistant (persistentVolume.enabled ci-dessus).
+    - appendonly: "yes"
   topologySpreadConstraints:
    - maxSkew: 1
      topologyKey: "topology.kubernetes.io/zone"

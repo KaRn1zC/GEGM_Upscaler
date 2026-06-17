@@ -174,7 +174,14 @@ async def _step_upscale(job_id: str) -> None:
 
     try:
         async with _open_db_session() as session:
-            job = await session.get(Job, uuid.UUID(job_id))
+            # Verrou de ligne (SELECT ... FOR UPDATE) : sérialise deux
+            # exécutions concurrentes de cette tâche (cas résiduel de double
+            # livraison broker). La seconde bloque jusqu'au commit de la
+            # première, relit alors ``gpu_run_id`` déjà posé et se rattache
+            # au run au lieu d'en soumettre un second. Le verrou est relâché
+            # avant le polling (commit après la décision submit/rattach), pas
+            # tenu pendant les minutes d'inférence.
+            job = await session.get(Job, uuid.UUID(job_id), with_for_update=True)
             if job is None:
                 raise ValueError(f"Job {job_id} introuvable en DB")
 
@@ -278,10 +285,13 @@ async def _step_upscale(job_id: str) -> None:
                 # ``cancel_job`` puisse le retrouver et appeler
                 # ``RunPodBackend.cancel(run_id)`` upstream, et pour que
                 # toute ré-exécution de cette tâche se rattache au run au
-                # lieu de resoumettre. Sans ce commit intermédiaire, une
-                # annulation utilisateur pendant l'inférence laisserait
-                # RunPod facturer le job jusqu'à completion.
+                # lieu de resoumettre. Ce commit relâche aussi le verrou de
+                # ligne avant le polling.
                 job.gpu_run_id = gpu_job_id
+                await session.commit()
+            else:
+                # Rattachement : rien à écrire, mais on relâche le verrou de
+                # ligne avant les minutes de polling.
                 await session.commit()
 
             publish_progress_sync(

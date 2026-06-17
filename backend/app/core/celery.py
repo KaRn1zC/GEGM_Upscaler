@@ -49,6 +49,14 @@ celery_app.conf.update(
     result_serializer="json",
     timezone="UTC",
     task_track_started=True,
+    # Transport Redis : le message d'une tâche est remis dans la file
+    # (redelivery) s'il n'est pas ack en moins de ``visibility_timeout``.
+    # Le défaut (3600 s) égale ``GPU_JOB_TIMEOUT_MAX_S`` → un upscale long
+    # (grosse image + cold start) frôlerait la limite et serait re-livré
+    # pendant qu'il tourne. On porte la fenêtre bien au-dessus de la durée
+    # max d'une tâche (timeout GPU 3600 s + marge de queue + overhead).
+    broker_transport_options={"visibility_timeout": 7200},
+    result_backend_transport_options={"visibility_timeout": 7200},
     # Planification Beat. Nécessite le process `celery beat` en plus du
     # worker (voir docker-compose). Les deux tâches sont idempotentes et
     # peuvent tourner en parallèle sans risque.
