@@ -132,6 +132,15 @@ AUTOCAST_FP16 = os.environ.get("AUTOCAST_FP16", "true").lower() in ("1", "true",
 # 2026-06-17 sur le x2). HAT-L tourne donc toujours en fp32.
 _FP16_SAFE_MODELS: set[str] = {"drct-l"}
 
+# torch.compile (Triton/Inductor) : fusionne l'attention fenêtrée manuelle de
+# DRCT (aucun kernel flash) et les petites convs — gain attendu 1.3-3x sur une
+# shape d'entrée fixe (512x512). Désactivé par défaut : Inductor peut casser
+# ou diverger sur les ops custom de DRCT (window_partition, roll) — on l'active
+# par env pour A/B, avec fallback eager auto si la compilation échoue au warm-up.
+# La compilation se paie une fois au warm-up (1-3 min), amortie sur les tuiles.
+TORCH_COMPILE = os.environ.get("TORCH_COMPILE", "false").lower() in ("1", "true", "yes")
+TORCH_COMPILE_MODE = os.environ.get("TORCH_COMPILE_MODE", "default")
+
 
 def _autocast_ctx(model_name: str) -> contextlib.AbstractContextManager[Any]:
     """Contexte autocast fp16 si activé, sur CUDA, et modèle fp16-safe ; sinon no-op."""
@@ -354,20 +363,46 @@ def load_model(model_name: str, scale_factor: int) -> torch.nn.Module:
         path=weights_path.name,
     )
 
+    # torch.compile optionnel — la compilation Inductor proprement dite est
+    # paresseuse : elle se déclenche au premier forward (donc au warm-up
+    # ci-dessous). On garde une référence au modèle eager pour pouvoir y
+    # revenir si Inductor casse sur les ops custom de DRCT.
+    eager_model = model
+    if TORCH_COMPILE and DEVICE == "cuda":
+        logger.info(
+            "torch.compile activé (mode={mode}) — compilation au warm-up",
+            mode=TORCH_COMPILE_MODE,
+        )
+        model = torch.compile(model, mode=TORCH_COMPILE_MODE)
+
     # Warm-up cuDNN : force la compilation JIT des kernels avec la shape
     # exacte des tuiles réelles (TILE_SIZE x TILE_SIZE). Sans ça, la
     # première tuile d'un vrai job paye 3-10 min de JIT compilation
     # invisible. Refait pour chaque (modèle, scale) chargé — les kernels
     # diffèrent suffisamment entre x2 et x4 pour justifier un warmup dédié.
+    # Si torch.compile est actif, ce forward déclenche aussi la compilation
+    # Inductor (1-3 min) — et tout échec retombe en eager sans planter le job.
     if DEVICE == "cuda":
         logger.info("Warm-up cuDNN en cours (JIT compilation première tuile)...")
         t0 = time.time()
-        # Même contexte autocast que l'inférence réelle : les kernels JIT
-        # compilés ici doivent être ceux du dtype effectivement utilisé.
-        with torch.no_grad(), _autocast_ctx(model_name):
-            dummy = torch.randn(1, 3, TILE_SIZE, TILE_SIZE, device=DEVICE)
-            _ = model(dummy)
-            torch.cuda.synchronize()
+        try:
+            # Même contexte autocast que l'inférence réelle : les kernels JIT
+            # compilés ici doivent être ceux du dtype effectivement utilisé.
+            with torch.no_grad(), _autocast_ctx(model_name):
+                dummy = torch.randn(1, 3, TILE_SIZE, TILE_SIZE, device=DEVICE)
+                _ = model(dummy)
+                torch.cuda.synchronize()
+        except Exception as exc:
+            if model is eager_model:
+                raise  # pas de compile en jeu → vraie erreur, on ne masque pas
+            logger.warning(
+                "torch.compile a échoué au warm-up ({err}) — fallback eager",
+                err=str(exc),
+            )
+            model = eager_model
+            with torch.no_grad(), _autocast_ctx(model_name):
+                _ = model(torch.randn(1, 3, TILE_SIZE, TILE_SIZE, device=DEVICE))
+                torch.cuda.synchronize()
         logger.info("Warm-up cuDNN terminé en {elapsed:.1f}s", elapsed=time.time() - t0)
 
     _model_cache[cache_key] = model
