@@ -21,6 +21,8 @@ from app.jobs.schemas import (
     BulkDeleteResponse,
     JobCreate,
     JobResponse,
+    WarmupRequest,
+    WarmupResponse,
 )
 from app.jobs.service import (
     bulk_delete_jobs,
@@ -29,6 +31,7 @@ from app.jobs.service import (
     delete_job,
     get_job,
     list_user_jobs,
+    warmup_gpu,
 )
 from app.jobs.sse import stream_job_progress
 from app.users.models import User
@@ -50,6 +53,23 @@ async def submit_job(
     """
     job = await create_job(payload, user, db, storage)
     return JobResponse.model_validate(job)
+
+
+@router.post("/api/warmup", response_model=WarmupResponse)
+async def warmup(
+    payload: WarmupRequest,
+    user: User = Depends(get_current_user),
+) -> WarmupResponse:
+    """Pré-chauffe un worker GPU (best-effort, fire-and-forget).
+
+    Appelé par le frontend à l'ouverture de l'app / au changement de facteur :
+    déclenche le chargement du modèle + la compilation ``torch.compile`` côté
+    worker pendant que l'utilisateur prépare son upload, pour masquer le
+    cold-start (~280 s) du premier vrai upscale. Ne bloque pas sur l'inférence
+    et n'échoue jamais sur un souci de pré-warm.
+    """
+    warmed = await warmup_gpu(payload.scale_factor)
+    return WarmupResponse(warmed=warmed)
 
 
 @router.get("/api/jobs", response_model=list[JobResponse])

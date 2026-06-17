@@ -208,3 +208,43 @@ async def test_should_bulk_delete_terminal_jobs_only(
 
     assert (await client.get(f"/api/jobs/{j1}", headers=AUTH_HEADERS)).status_code == 404
     assert (await client.get(f"/api/jobs/{j2}", headers=AUTH_HEADERS)).status_code == 200
+
+
+# ── Pré-warm ─────────────────────────────────────────────────────
+
+
+async def test_should_warmup_noop_without_cloud(client: AsyncClient) -> None:
+    """Sans backend cloud disponible, /api/warmup → warmed=false (no-op)."""
+    with patch("app.core.gpu.factory.build_cloud_gpu_backend", return_value=None):
+        resp = await client.post(
+            "/api/warmup", json={"scale_factor": 4}, headers=AUTH_HEADERS
+        )
+    assert resp.status_code == 200
+    assert resp.json() == {"warmed": False}
+
+
+async def test_should_warmup_require_auth(client: AsyncClient) -> None:
+    """/api/warmup exige une authentification (pas de spam anonyme du GPU)."""
+    resp = await client.post("/api/warmup", json={"scale_factor": 4})
+    assert resp.status_code == 401
+
+
+async def test_should_warmup_send_ping_with_cloud(client: AsyncClient) -> None:
+    """Avec un backend cloud, /api/warmup envoie le ping (x2 → hat-l) et ferme."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    fake_backend = MagicMock()
+    fake_backend.warmup = AsyncMock()
+    fake_backend.close = AsyncMock()
+
+    with patch(
+        "app.core.gpu.factory.build_cloud_gpu_backend", return_value=fake_backend
+    ):
+        resp = await client.post(
+            "/api/warmup", json={"scale_factor": 2}, headers=AUTH_HEADERS
+        )
+
+    assert resp.status_code == 200
+    assert resp.json() == {"warmed": True}
+    fake_backend.warmup.assert_awaited_once_with(scale_factor=2, model_name="hat-l")
+    fake_backend.close.assert_awaited_once()

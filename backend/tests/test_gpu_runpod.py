@@ -272,3 +272,30 @@ async def test_should_cancel_job_without_error(backend: RunPodBackend) -> None:
 
     with patch.object(backend._client, "post", new_callable=AsyncMock, return_value=mock_resp):
         await backend.cancel_job("rp-6")
+
+
+# ──────────────────────────────────────────────────────────────
+# warmup (pré-warm)
+# ──────────────────────────────────────────────────────────────
+
+
+async def test_should_send_ping_on_warmup(backend: RunPodBackend) -> None:
+    """warmup() envoie un job ``ping`` fire-and-forget avec scale + modèle."""
+    mock_resp = _mock_response(200, {"id": "rp-warm", "status": "IN_QUEUE"})
+    mock_post = AsyncMock(return_value=mock_resp)
+
+    with patch.object(backend._client, "post", mock_post):
+        await backend.warmup(scale_factor=2, model_name="hat-l")
+
+    payload = mock_post.call_args.kwargs["json"]
+    assert payload["input"]["ping"] is True
+    assert payload["input"]["scale_factor"] == 2
+    assert payload["input"]["model_name"] == "hat-l"
+
+
+async def test_should_swallow_warmup_network_failure(backend: RunPodBackend) -> None:
+    """Un échec réseau du warmup est avalé (best-effort, jamais propagé)."""
+    mock_post = AsyncMock(side_effect=httpx.ConnectError("boom"))
+
+    with patch.object(backend._client, "post", mock_post):
+        await backend.warmup(scale_factor=4)  # ne doit pas lever

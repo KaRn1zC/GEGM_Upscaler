@@ -134,6 +134,22 @@ class GPUBackend(ABC):
         descripteurs à chaque job.
         """
 
+    # No-op volontaire (pas @abstractmethod) : seuls les backends cloud à
+    # cold-start coûteux en ont besoin ; les backends locaux n'ont rien à faire.
+    async def warmup(self, *, scale_factor: int = 4, model_name: str | None = None) -> None:  # noqa: B027
+        """Pré-chauffe un worker GPU sans lancer d'inférence (best-effort).
+
+        No-op par défaut. ``RunPodBackend`` envoie un job ``ping`` qui réveille
+        un worker, charge le modèle et déclenche la compilation ``torch.compile``
+        en avance — pour que le premier vrai upscale ne paie pas le cold-start
+        (~280 s de compilation Inductor). Ne lève jamais : un échec de pré-warm
+        ne doit pas casser l'appelant.
+
+        Args:
+            scale_factor: Facteur visé — détermine le modèle chargé côté worker.
+            model_name: Modèle à pré-charger (déduit du scale côté worker sinon).
+        """
+
     @abstractmethod
     def get_output_data(self, job_id: str) -> bytes | BinaryIO | None:
         """Récupère le résultat d'un job terminé (bytes ou flux binaire).

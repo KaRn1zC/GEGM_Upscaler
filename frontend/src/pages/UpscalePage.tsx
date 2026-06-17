@@ -11,7 +11,12 @@ import { useTauriDragDrop } from "@/hooks/useTauriDragDrop";
 import { useJobStore } from "@/stores/useJobStore";
 import { cn } from "@/lib/utils";
 import { SCALE_FACTORS, SCALE_TO_MODEL, type ScaleFactor } from "@/lib/constants";
-import { getDownloadUrl, getUploadUrl, type JobResponse } from "@/lib/api";
+import {
+  getDownloadUrl,
+  getUploadUrl,
+  warmupGpu,
+  type JobResponse,
+} from "@/lib/api";
 import { downloadFile } from "@/lib/tauri";
 
 const EASE_OUT_EXPO = [0.22, 1, 0.36, 1] as const;
@@ -54,6 +59,14 @@ export function UpscalePage() {
   useEffect(() => {
     void fetchJobs();
   }, [fetchJobs]);
+
+  // Pré-warm GPU : au mount et à chaque changement de facteur, on réveille un
+  // worker pour qu'il compile le modèle (torch.compile, ~280 s) pendant que
+  // l'utilisateur prépare son upload — le 1er vrai upscale tombe alors sur un
+  // worker déjà chaud. Best-effort, n'affiche rien et n'échoue jamais.
+  useEffect(() => {
+    void warmupGpu(scaleFactor);
+  }, [scaleFactor]);
 
   // SSE pour le job actif.
   useSSE({

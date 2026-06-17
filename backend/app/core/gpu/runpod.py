@@ -189,6 +189,39 @@ class RunPodBackend(GPUBackend):
 
         return job_id
 
+    async def warmup(self, *, scale_factor: int = 4, model_name: str | None = None) -> None:
+        """Envoie un job ``ping`` fire-and-forget pour pré-chauffer un worker.
+
+        Le handler charge le modèle et déclenche la compilation ``torch.compile``
+        sur ce ping, sans inférence. On ne poll pas le résultat : l'objectif est
+        seulement de réveiller/compiler un worker avant le vrai job. Best-effort —
+        un échec (RunPod injoignable) est loggé en warning, jamais propagé.
+
+        Args:
+            scale_factor: Facteur visé (sélectionne le modèle côté worker).
+            model_name: Modèle à pré-charger (optionnel).
+        """
+        inputs: dict[str, object] = {"ping": True, "scale_factor": scale_factor}
+        if model_name:
+            inputs["model_name"] = model_name
+        try:
+            response = await self._client.post(
+                f"{self._base_url}/run", json={"input": inputs}
+            )
+        except httpx.HTTPError as exc:
+            logger.warning("Pré-warm RunPod échoué (réseau) : {err}", err=str(exc))
+            return
+        if response.status_code != 200:
+            logger.warning(
+                "Pré-warm RunPod refusé — HTTP {status}", status=response.status_code
+            )
+            return
+        logger.info(
+            "Pré-warm RunPod envoyé — scale=x{sf} model={m}",
+            sf=scale_factor,
+            m=model_name or "défaut",
+        )
+
     async def get_job_status(self, job_id: str) -> GPUJobResult:
         """Poll le statut d'un job RunPod.
 

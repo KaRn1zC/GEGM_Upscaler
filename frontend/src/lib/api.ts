@@ -131,6 +131,22 @@ export async function listJobs(): Promise<JobResponse[]> {
   return handleResponse<JobResponse[]>(res);
 }
 
+/** Pré-chauffe un worker GPU pour `scaleFactor` : déclenche le chargement du
+ *  modèle + la compilation `torch.compile` côté worker pendant que l'utilisateur
+ *  prépare son upload, pour masquer le cold-start (~280 s) du 1er upscale.
+ *  Best-effort — toute erreur est avalée, ça ne doit jamais gêner l'UX. */
+export async function warmupGpu(scaleFactor: number): Promise<void> {
+  try {
+    await fetch(`${API_BASE}/warmup`, {
+      method: "POST",
+      headers: await headers(),
+      body: JSON.stringify({ scale_factor: scaleFactor }),
+    });
+  } catch {
+    // pré-warm best-effort : on ignore tout échec silencieusement
+  }
+}
+
 export async function getJob(jobId: string): Promise<JobResponse> {
   const res = await fetch(`${API_BASE}/jobs/${jobId}`, {
     headers: await headers(),

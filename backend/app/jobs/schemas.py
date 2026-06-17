@@ -75,3 +75,25 @@ class BulkDeleteResponse(BaseModel):
     """
 
     deleted: int
+
+
+class WarmupRequest(BaseModel):
+    """Pré-chauffage d'un worker GPU pour un facteur donné.
+
+    Attributes:
+        scale_factor: Facteur visé (2 ou 4) — sélectionne le modèle à
+            pré-charger/compiler côté worker. Défaut x4 (le plus courant).
+    """
+
+    scale_factor: Literal[2, 4] = 4
+
+
+class WarmupResponse(BaseModel):
+    """Résultat d'une demande de pré-warm.
+
+    Attributes:
+        warmed: ``True`` si un ping de pré-warm a été émis vers le GPU cloud,
+            ``False`` si aucun backend cloud n'est configuré (mode local).
+    """
+
+    warmed: bool

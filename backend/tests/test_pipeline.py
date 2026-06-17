@@ -77,7 +77,9 @@ def test_should_return_none_when_coremltools_missing(tmp_path: object) -> None:
 
 def test_should_return_none_without_runpod_credentials() -> None:
     """Sans clé API ou endpoint ID, le backend cloud doit retourner None."""
-    with patch("app.upscaling.pipeline.settings") as mock_settings:
+    # La construction vit dans la factory partagée (cf. _try_build_cloud_backend
+    # qui y délègue) — on patche donc les settings lus par la factory.
+    with patch("app.core.gpu.factory.settings") as mock_settings:
         mock_settings.RUNPOD_API_KEY.get_secret_value.return_value = ""
         mock_settings.RUNPOD_ENDPOINT_ID = ""
         assert _try_build_cloud_backend() is None
@@ -85,7 +87,7 @@ def test_should_return_none_without_runpod_credentials() -> None:
 
 def test_should_build_runpod_backend_when_configured() -> None:
     """Avec credentials valides, le backend cloud doit être instancié."""
-    with patch("app.upscaling.pipeline.settings") as mock_settings:
+    with patch("app.core.gpu.factory.settings") as mock_settings:
         mock_settings.RUNPOD_API_KEY.get_secret_value.return_value = "test-key"
         mock_settings.RUNPOD_ENDPOINT_ID = "test-endpoint"
 

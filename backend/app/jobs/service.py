@@ -49,6 +49,35 @@ def _model_for_scale(scale_factor: int) -> str:
         ) from exc
 
 
+async def warmup_gpu(scale_factor: int) -> bool:
+    """Pré-chauffe un worker GPU cloud pour le ``scale_factor`` demandé.
+
+    Best-effort : sans backend cloud configuré (mode local), ne fait rien.
+    Sinon envoie un ping fire-and-forget qui déclenche le chargement du modèle
+    et la compilation torch.compile côté worker, pendant que l'utilisateur
+    prépare son upload — pour que le premier vrai upscale ne paie pas le
+    cold-start.
+
+    Args:
+        scale_factor: Facteur d'upscale visé (2 ou 4).
+
+    Returns:
+        ``True`` si un pré-warm a été émis, ``False`` faute de backend cloud.
+    """
+    from app.core.gpu.factory import build_cloud_gpu_backend
+
+    backend = build_cloud_gpu_backend()
+    if backend is None:
+        return False
+    try:
+        await backend.warmup(
+            scale_factor=scale_factor, model_name=_model_for_scale(scale_factor)
+        )
+    finally:
+        await backend.close()
+    return True
+
+
 async def create_job(
     payload: JobCreate,
     user: User,

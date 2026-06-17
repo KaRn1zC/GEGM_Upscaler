@@ -670,34 +670,14 @@ def _try_build_local_backend(model_name: str) -> GPUBackend | None:
 
 
 def _try_build_cloud_backend() -> GPUBackend | None:
-    """Tente de construire le backend RunPod cloud.
+    """Construit le backend RunPod cloud, ou ``None`` si non configuré.
 
-    Retourne ``None`` si les credentials RunPod ne sont pas configurés.
-    La config ``S3_OUTPUT_*`` est optionnelle : si présente, le backend peut
-    télécharger les outputs volumineux que le handler upload sur le bucket
-    (mode S3) ; sinon il fallback sur les outputs inline base64.
-
-    Returns:
-        Instance ``RunPodBackend`` ou ``None``.
+    Délègue à la fabrique partagée ``build_cloud_gpu_backend`` (même
+    construction côté API pour le pré-warm).
     """
-    api_key = settings.RUNPOD_API_KEY.get_secret_value()
-    endpoint_id = settings.RUNPOD_ENDPOINT_ID
+    from app.core.gpu.factory import build_cloud_gpu_backend
 
-    if not api_key or not endpoint_id:
-        logger.debug("Credentials RunPod absents — backend cloud désactivé")
-        return None
-
-    from app.core.gpu.runpod import RunPodBackend
-
-    return RunPodBackend(
-        api_key=api_key,
-        endpoint_id=endpoint_id,
-        s3_endpoint_url=settings.S3_OUTPUT_ENDPOINT_URL,
-        s3_bucket=settings.S3_OUTPUT_BUCKET,
-        s3_access_key=settings.S3_OUTPUT_ACCESS_KEY.get_secret_value(),
-        s3_secret_key=settings.S3_OUTPUT_SECRET_KEY.get_secret_value(),
-        s3_region=settings.S3_OUTPUT_REGION,
-    )
+    return build_cloud_gpu_backend()
 
 
 def _compute_gpu_timeout(input_mp: float) -> int:
