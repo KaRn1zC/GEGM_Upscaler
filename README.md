@@ -110,7 +110,7 @@ drag-drop Finder) ; la distribution desktop est **différée et optionnelle**
 | Modèles SR | DRCT-L (`ming053l/DRCT`), fallback HAT-L |
 | Déploiement | **Kubernetes** + **Helm 3** chart, Envoy Gateway, External Secrets Operator |
 | Monitoring | **OpenTelemetry** + **VictoriaMetrics** (ou Prometheus), **Grafana**, **Loki**, **Sentry** self-hosted |
-| CI/CD | **GitLab CI** (`.gitlab-ci.yml` — `lint-test` : backend, frontend, e2e, helm ; `build` : image Kaniko + scan Trivy ; `deploy` : bump GitOps vers ArgoCD. Release sur tag `prod` ou `v*.*.*`) |
+| CI/CD | **GitLab CI** (`.gitlab-ci.yml` — `lint-test` : backend, frontend, e2e, helm ; `build` : image Kaniko + scan Trivy ; `deploy` : bump GitOps vers ArgoCD. Déploiement sur push de la branche `prod`, ou tag `v*.*.*`) |
 
 ---
 
@@ -205,14 +205,24 @@ rebuilds le worker que si tu modifies `runpod-worker/handler.py`,
 
 ### Build & release de l'image backend
 
-Un tag git `prod` ou `v*.*.*` déclenche la chaîne du `.gitlab-ci.yml` :
-`backend-image` (build Kaniko, push triple tag `:sha`/`:tag`/`:latest`) →
-`backend-image-scan` (Trivy, **bloquant** sur CVE CRITICAL/HIGH corrigeable) →
-`deploy-bump-tag` (commit du SHA court dans le `prod.yaml` du dépôt GitOps
-`gegm-upscaler-argocd`). **ArgoCD** détecte le commit et synchronise le
-cluster — aucun `helm upgrade` ni `kubectl` manuel. Le SHA court comme tag
-d'image garantit un rollout à chaque release, même en réutilisant le tag
-git `prod`.
+Le déploiement se fait en poussant la **branche `prod`** :
+
+```bash
+git push origin main:prod   # déploie l'état courant de main
+```
+
+Ce push déclenche la chaîne du `.gitlab-ci.yml` : `backend-image` (build
+Kaniko, push triple tag `:sha`/`:tag`/`:latest`) → `backend-image-scan`
+(Trivy, **bloquant** sur CVE CRITICAL/HIGH corrigeable) → `deploy-bump-tag`
+(commit du SHA court dans le `prod.yaml` du dépôt GitOps
+`gegm-upscaler-argocd`). **ArgoCD** suit la branche `prod` (chart) et le
+`prod.yaml` (image) et synchronise le cluster — aucun `helm upgrade` ni
+`kubectl` manuel, aucun force-push. Le SHA court comme tag d'image garantit
+un rollout à chaque déploiement.
+
+> Un tag `v*.*.*` déclenche aussi le build (marqueur de version lisible),
+> mais c'est la **branche `prod`** qui est la ref de déploiement suivie par
+> ArgoCD pour le chart.
 
 ### Build & release de l'image worker RunPod
 
@@ -418,12 +428,14 @@ Pour tester ces couches, il faut passer en § 9.
 Déploiement réel sur `https://upscaler.gegmgroup.com` via Kubernetes + le
 chart Helm `.helm/`, en **GitOps via ArgoCD** :
 
-1. Un tag git `prod` ou `v*.*.*` → la CI GitLab build l'image (Kaniko), la
-   scanne (Trivy, bloquant), puis commit le **SHA court** de l'image dans le
-   `prod.yaml` du dépôt GitOps dédié (`gegm-upscaler-argocd`).
-2. **ArgoCD** (Application multi-sources : chart `.helm/` du dépôt applicatif +
-   overlay `prod.yaml` du dépôt `-argocd`) synchronise le cluster — aucun
-   `helm upgrade` ni `kubectl` manuel.
+1. Pour déployer : **`git push origin main:prod`** (push de la branche `prod`).
+   La CI GitLab build l'image (Kaniko), la scanne (Trivy, bloquant), puis
+   commit le **SHA court** de l'image dans le `prod.yaml` du dépôt GitOps
+   dédié (`gegm-upscaler-argocd`).
+2. **ArgoCD** (Application multi-sources : chart `.helm/` lu sur la **branche
+   `prod`** du dépôt applicatif + overlay `prod.yaml` du dépôt `-argocd`)
+   synchronise le cluster — aucun `helm upgrade` ni `kubectl` manuel, aucun
+   force-push de tag.
 3. Pendant la sync, un **Job de migration** (`alembic upgrade head`, hook
    ArgoCD en sync-wave -1) crée/actualise le schéma entre la création de la
    base (CR CNPG `Database`, wave -2) et le rollout des Deployments (wave 0).
@@ -516,9 +528,9 @@ La CI tourne via `.gitlab-ci.yml` sur le dépôt canonique
 | `lint-test` | `frontend` | push / MR (changements frontend) + tags release | tsc + eslint + vitest + build Vite |
 | `lint-test` | `e2e` | push / MR (changements frontend) + tags release | 14 tests Playwright |
 | `lint-test` | `helm` | push / MR (changements `.helm/`) + tags release | `helm dependency build` + lint + template prod/staging + validation YAML |
-| `build` | `backend-image` | tag `prod` ou `v*.*.*` | Build Kaniko → `registry.kangourouge.com/gegm-creative/ai/gegm-upscaler` (`:sha`, `:tag`, `:latest`) |
-| `build` | `backend-image-scan` | tag `prod` ou `v*.*.*` | Trivy sur la réf SHA déployée — **bloquant** (CVE CRITICAL/HIGH corrigeable) |
-| `deploy` | `deploy-bump-tag` | tag `prod` ou `v*.*.*`, après scan OK | Commit du SHA court dans `prod.yaml` du dépôt `-argocd` → sync ArgoCD |
+| `build` | `backend-image` | push branche `prod` ou tag `v*.*.*` | Build Kaniko → `registry.kangourouge.com/gegm-creative/ai/gegm-upscaler` (`:sha`, `:tag`, `:latest`) |
+| `build` | `backend-image-scan` | push branche `prod` ou tag `v*.*.*` | Trivy sur la réf SHA déployée — **bloquant** (CVE CRITICAL/HIGH corrigeable) |
+| `deploy` | `deploy-bump-tag` | push branche `prod` ou tag `v*.*.*`, après scan OK | Commit du SHA court dans `prod.yaml` du dépôt `-argocd` → sync ArgoCD |
 
 Le dépôt GitHub `KaRn1zC/GEGM_Upscaler` est un **miroir vitrine** — ne pas
 l'utiliser comme source de vérité pour les procédures CI/CD.
