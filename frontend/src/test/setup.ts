@@ -71,6 +71,36 @@ Object.defineProperty(globalThis, "matchMedia", {
   configurable: true,
 });
 
+// EventSource — non fourni par jsdom mais requis par `useSSE` (donc par
+// `LiveJobCard`). Mock inerte : on n'ouvre aucune vraie connexion SSE en
+// test, on vérifie juste que les composants rendent sans planter.
+class EventSourceMock {
+  static readonly CONNECTING = 0;
+  static readonly OPEN = 1;
+  static readonly CLOSED = 2;
+  readonly url: string;
+  readyState = 0;
+  onopen: (() => void) | null = null;
+  onmessage: (() => void) | null = null;
+  onerror: (() => void) | null = null;
+
+  constructor(url: string) {
+    this.url = url;
+  }
+
+  addEventListener(): void {}
+  removeEventListener(): void {}
+  close(): void {
+    this.readyState = 2;
+  }
+}
+
+Object.defineProperty(globalThis, "EventSource", {
+  value: EventSourceMock,
+  writable: true,
+  configurable: true,
+});
+
 // Polyfill localStorage — Vitest 4 + jsdom 29 expose un objet vide
 // sans les méthodes du Storage API, on le remplace par une Map interne.
 class LocalStorageMock implements Storage {

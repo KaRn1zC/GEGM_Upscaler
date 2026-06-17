@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { m, AnimatePresence } from "motion/react";
 import { Layers } from "lucide-react";
 import { BatchPanel, type BatchPanelHandle } from "@/components/BatchPanel";
-import { JobCard } from "@/components/JobCard";
+import { LiveJobCard } from "@/components/LiveJobCard";
 import { useJobStore } from "@/stores/useJobStore";
 import { useSystemResources } from "@/hooks/useSystemResources";
 import { useTauriDragDrop } from "@/hooks/useTauriDragDrop";
@@ -178,7 +178,7 @@ export function BatchPage() {
                       delay: i * 0.05,
                     }}
                   >
-                    <JobCard
+                    <LiveJobCard
                       job={job}
                       onCancel={(j) => void cancelJob(j.id)}
                       onDelete={(j) => void removeJob(j.id)}
