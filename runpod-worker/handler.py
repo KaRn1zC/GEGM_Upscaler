@@ -370,10 +370,13 @@ def load_model(model_name: str, scale_factor: int) -> torch.nn.Module:
     eager_model = model
     if TORCH_COMPILE and DEVICE == "cuda":
         logger.info(
-            "torch.compile activé (mode={mode}) — compilation au warm-up",
+            "torch.compile activé (mode={mode}, dynamic=False) — compilation au warm-up",
             mode=TORCH_COMPILE_MODE,
         )
-        model = torch.compile(model, mode=TORCH_COMPILE_MODE)
+        # dynamic=False : nos tuiles font TOUJOURS 512x512 → on force la
+        # spécialisation statique d'emblée et on évite la recompilation
+        # auto-dynamic que torch.compile déclenche sinon au 2ᵉ forward.
+        model = torch.compile(model, mode=TORCH_COMPILE_MODE, dynamic=False)
 
     # Warm-up cuDNN : force la compilation JIT des kernels avec la shape
     # exacte des tuiles réelles (TILE_SIZE x TILE_SIZE). Sans ça, la
@@ -389,8 +392,13 @@ def load_model(model_name: str, scale_factor: int) -> torch.nn.Module:
             # Même contexte autocast ET même layout de tenseur que l'inférence
             # réelle : les kernels JIT (et le graphe torch.compile) compilés ici
             # doivent matcher exactement le forward réel, sinon recompilation.
+            # Sous torch.compile on chauffe 2 fois : si un recompile résiduel
+            # subsiste (settling), il est absorbé ici (pre-warm) et non payé au
+            # 1ᵉʳ vrai upscale.
+            warmup_passes = 2 if TORCH_COMPILE else 1
             with torch.no_grad(), _autocast_ctx(model_name):
-                _ = model(_warmup_input())
+                for _ in range(warmup_passes):
+                    _ = model(_warmup_input())
                 torch.cuda.synchronize()
         except Exception as exc:
             if model is eager_model:
