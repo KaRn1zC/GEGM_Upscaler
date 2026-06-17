@@ -3,20 +3,53 @@ import { m, AnimatePresence } from "motion/react";
 import { ImageIcon } from "lucide-react";
 import { Gallery } from "@/components/Gallery";
 import { ZoomViewer } from "@/components/ZoomViewer";
+import { SelectionBar } from "@/components/SelectionBar";
+import { useConfirm } from "@/hooks/useConfirm";
 import { useJobStore } from "@/stores/useJobStore";
 import { getDownloadUrl, type JobResponse } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 const EASE_OUT_EXPO = [0.22, 1, 0.36, 1] as const;
 
 export function GalleryPage() {
-  const { jobs, isLoading, fetchJobs } = useJobStore();
+  const { jobs, isLoading, fetchJobs, removeJob, removeJobs } = useJobStore();
+  const confirm = useConfirm();
   const [zoomJob, setZoomJob] = useState<JobResponse | null>(null);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     void fetchJobs();
   }, [fetchJobs]);
 
   const completedJobs = jobs.filter((j) => j.status === "completed");
+
+  const toggle = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const exitSelection = () => {
+    setSelectMode(false);
+    setSelected(new Set());
+  };
+
+  const handleBulkDelete = async () => {
+    const ids = [...selected];
+    if (ids.length === 0) return;
+    const ok = await confirm({
+      title: `Supprimer ${ids.length} résultat(s) ?`,
+      description:
+        "Les images sources et résultats sélectionnés seront définitivement supprimés du stockage. Cette action est irréversible.",
+      confirmLabel: "Supprimer",
+    });
+    if (!ok) return;
+    await removeJobs(ids);
+    exitSelection();
+  };
 
   return (
     <div className="relative flex-1 overflow-hidden">
@@ -29,22 +62,39 @@ export function GalleryPage() {
           initial={{ opacity: 0, y: 24 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.9, ease: EASE_OUT_EXPO }}
-          className="mb-10"
+          className="mb-10 flex items-end justify-between gap-4"
         >
-          <h1 className="font-display font-light text-5xl lg:text-7xl tracking-tight text-foreground leading-[0.95]">
-            Galerie
-          </h1>
-          <p className="mt-4 text-[11px] uppercase tracking-[0.3em] text-muted-foreground font-sans">
-            Tous les résultats d'upscaling terminés
-            {completedJobs.length > 0 && (
-              <>
-                <span className="mx-2 text-primary/50">·</span>
-                <span data-tabular className="text-primary font-mono">
-                  {completedJobs.length}
-                </span>
-              </>
-            )}
-          </p>
+          <div>
+            <h1 className="font-display font-light text-5xl lg:text-7xl tracking-tight text-foreground leading-[0.95]">
+              Galerie
+            </h1>
+            <p className="mt-4 text-[11px] uppercase tracking-[0.3em] text-muted-foreground font-sans">
+              Tous les résultats d'upscaling terminés
+              {completedJobs.length > 0 && (
+                <>
+                  <span className="mx-2 text-primary/50">·</span>
+                  <span data-tabular className="text-primary font-mono">
+                    {completedJobs.length}
+                  </span>
+                </>
+              )}
+            </p>
+          </div>
+
+          {completedJobs.length > 0 && !zoomJob && (
+            <button
+              type="button"
+              onClick={() => (selectMode ? exitSelection() : setSelectMode(true))}
+              className={cn(
+                "shrink-0 text-[11px] font-medium px-3.5 py-1.5 rounded-lg border bg-card transition-colors",
+                selectMode
+                  ? "border-border text-muted-foreground hover:text-foreground"
+                  : "border-border text-muted-foreground hover:text-primary hover:border-primary/40",
+              )}
+            >
+              {selectMode ? "Terminer" : "Sélectionner"}
+            </button>
+          )}
         </m.header>
 
         {/* Viewer plein écran avec shared layout */}
@@ -63,6 +113,10 @@ export function GalleryPage() {
                 imageUrl={getDownloadUrl(zoomJob.id)}
                 title={`${zoomJob.output_width}×${zoomJob.output_height} · ${zoomJob.model_name}`}
                 onClose={() => setZoomJob(null)}
+                onDelete={() => {
+                  void removeJob(zoomJob.id);
+                  setZoomJob(null);
+                }}
               />
             </m.div>
           )}
@@ -98,9 +152,28 @@ export function GalleryPage() {
         )}
 
         {!isLoading && completedJobs.length > 0 && (
-          <Gallery jobs={completedJobs} onZoom={setZoomJob} />
+          <Gallery
+            jobs={completedJobs}
+            onZoom={selectMode ? undefined : setZoomJob}
+            onDelete={(j) => void removeJob(j.id)}
+            selectMode={selectMode}
+            selectedIds={selected}
+            onToggleSelect={toggle}
+          />
         )}
       </div>
+
+      {/* Barre d'action de sélection groupée */}
+      <AnimatePresence>
+        {selectMode && (
+          <SelectionBar
+            selectedCount={selected.size}
+            onSelectAll={() => setSelected(new Set(completedJobs.map((j) => j.id)))}
+            onDelete={() => void handleBulkDelete()}
+            onClose={exitSelection}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

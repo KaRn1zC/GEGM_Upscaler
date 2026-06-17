@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  bulkDeleteJobs,
   cancelJob,
   createJob,
+  deleteJob,
   getCurrentUser,
   getDownloadUrl,
   listJobs,
@@ -124,19 +126,54 @@ describe("listJobs", () => {
 });
 
 describe("cancelJob", () => {
-  it("should send DELETE request", async () => {
+  it("should send POST to the cancel endpoint", async () => {
     mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
 
     await cancelJob("job-42");
 
     const [url, init] = mockFetch.mock.calls[0];
-    expect(url).toBe("/api/jobs/job-42");
-    expect((init as RequestInit).method).toBe("DELETE");
+    expect(url).toBe("/api/jobs/job-42/cancel");
+    expect((init as RequestInit).method).toBe("POST");
   });
 
   it("should throw on error response", async () => {
     mockFetch.mockResolvedValueOnce(new Response("Conflit", { status: 409 }));
     await expect(cancelJob("job-x")).rejects.toThrow(/HTTP 409/);
+  });
+});
+
+describe("deleteJob", () => {
+  it("should send DELETE request", async () => {
+    mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+    await deleteJob("job-7");
+
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toBe("/api/jobs/job-7");
+    expect((init as RequestInit).method).toBe("DELETE");
+  });
+
+  it("should throw on error response", async () => {
+    mockFetch.mockResolvedValueOnce(new Response("Conflit", { status: 409 }));
+    await expect(deleteJob("job-x")).rejects.toThrow(/HTTP 409/);
+  });
+});
+
+describe("bulkDeleteJobs", () => {
+  it("should POST the ids and return the deleted count", async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ deleted: 2 }), { status: 200 }),
+    );
+
+    const deleted = await bulkDeleteJobs(["a", "b", "c"]);
+
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toBe("/api/jobs/bulk-delete");
+    expect((init as RequestInit).method).toBe("POST");
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({
+      job_ids: ["a", "b", "c"],
+    });
+    expect(deleted).toBe(2);
   });
 });
 

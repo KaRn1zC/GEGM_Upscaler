@@ -175,13 +175,36 @@ describe("useJobStore", () => {
     });
   });
 
+  describe("cancelJob", () => {
+    it("should cancel via API and mark the job cancelled (kept in list)", async () => {
+      useJobStore.setState({
+        jobs: [makeJob({ id: "j1", status: "processing" }), makeJob({ id: "j2" })],
+      });
+
+      vi.spyOn(api, "cancelJob").mockResolvedValue(undefined);
+
+      const { result } = renderHook(() => useJobStore());
+
+      await act(async () => {
+        await result.current.cancelJob("j1");
+      });
+
+      // Le job reste listé mais passe à cancelled (devient supprimable).
+      expect(result.current.jobs).toHaveLength(2);
+      expect(result.current.jobs.find((j) => j.id === "j1")?.status).toBe(
+        "cancelled",
+      );
+      expect(api.cancelJob).toHaveBeenCalledWith("j1");
+    });
+  });
+
   describe("removeJob", () => {
-    it("should cancel the job via API and remove it from state", async () => {
+    it("should delete the job via API and remove it from state", async () => {
       useJobStore.setState({
         jobs: [makeJob({ id: "j1" }), makeJob({ id: "j2" })],
       });
 
-      vi.spyOn(api, "cancelJob").mockResolvedValue(undefined);
+      vi.spyOn(api, "deleteJob").mockResolvedValue(undefined);
 
       const { result } = renderHook(() => useJobStore());
 
@@ -191,7 +214,33 @@ describe("useJobStore", () => {
 
       expect(result.current.jobs).toHaveLength(1);
       expect(result.current.jobs[0]?.id).toBe("j2");
-      expect(api.cancelJob).toHaveBeenCalledWith("j1");
+      expect(api.deleteJob).toHaveBeenCalledWith("j1");
+    });
+  });
+
+  describe("removeJobs", () => {
+    it("should bulk-delete and drop the deleted terminal jobs from state", async () => {
+      useJobStore.setState({
+        jobs: [
+          makeJob({ id: "j1", status: "completed" }),
+          makeJob({ id: "j2", status: "processing" }),
+          makeJob({ id: "j3", status: "failed" }),
+        ],
+      });
+
+      vi.spyOn(api, "bulkDeleteJobs").mockResolvedValue(2);
+
+      const { result } = renderHook(() => useJobStore());
+
+      let deleted = 0;
+      await act(async () => {
+        deleted = await result.current.removeJobs(["j1", "j2", "j3"]);
+      });
+
+      expect(deleted).toBe(2);
+      // j2 (processing, non terminal) reste ; j1 + j3 (terminés) partent.
+      expect(result.current.jobs.map((j) => j.id)).toEqual(["j2"]);
+      expect(api.bulkDeleteJobs).toHaveBeenCalledWith(["j1", "j2", "j3"]);
     });
   });
 });

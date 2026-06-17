@@ -4,6 +4,7 @@ import {
   Clock,
   Download,
   Loader2,
+  Trash2,
   XCircle,
   Zap,
   Ban,
@@ -12,12 +13,16 @@ import {
 import type { JobResponse } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { JOB_STATUS_LABELS } from "@/lib/constants";
+import { useConfirm } from "@/hooks/useConfirm";
 
 interface JobCardProps {
   job: JobResponse;
   onDownload?: (job: JobResponse) => void;
   onCancel?: (job: JobResponse) => void;
   onCompare?: (job: JobResponse) => void;
+  /** Suppression définitive (fichiers + ligne DB). Une confirmation est
+   *  demandée par la carte avant d'appeler ce callback. */
+  onDelete?: (job: JobResponse) => void;
 }
 
 interface StatusConfig {
@@ -66,14 +71,29 @@ const STATUS_CONFIG: Record<string, StatusConfig> = {
   },
 };
 
-export function JobCard({ job, onDownload, onCancel, onCompare }: JobCardProps) {
+export function JobCard({ job, onDownload, onCancel, onCompare, onDelete }: JobCardProps) {
   const config = STATUS_CONFIG[job.status] ?? STATUS_CONFIG.pending;
   const Icon = config.icon;
   const isActive = job.status === "processing" || job.status === "queued";
   const isProcessing = job.status === "processing";
   const isComplete = job.status === "completed";
   const isFailed = job.status === "failed";
+  // Terminé = supprimable (la suppression réelle exige un état terminal).
+  const isTerminal =
+    job.status === "completed" || job.status === "failed" || job.status === "cancelled";
   const pct = Math.round(job.progress * 100);
+  const confirm = useConfirm();
+
+  const handleDelete = async () => {
+    if (!onDelete) return;
+    const ok = await confirm({
+      title: "Supprimer ce job ?",
+      description:
+        "L'image source et le résultat seront définitivement supprimés du stockage. Cette action est irréversible.",
+      confirmLabel: "Supprimer",
+    });
+    if (ok) onDelete(job);
+  };
 
   return (
     <m.div
@@ -191,6 +211,21 @@ export function JobCard({ job, onDownload, onCancel, onCompare }: JobCardProps) 
 
       {/* Actions */}
       <div className="flex items-center gap-2">
+        {isTerminal && onDelete && (
+          <m.button
+            onClick={() => void handleDelete()}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.92 }}
+            transition={{ type: "spring", stiffness: 400, damping: 25 }}
+            // Placé en dernier visuellement via ml-auto : reste discret,
+            // poussé à droite de la rangée d'actions.
+            className="order-last ml-auto flex items-center justify-center w-7 h-7 rounded-lg bg-card border border-border text-muted-foreground hover:text-destructive hover:border-destructive/40 transition-colors"
+            title="Supprimer"
+            aria-label="Supprimer le job"
+          >
+            <Trash2 className="w-3.5 h-3.5" strokeWidth={1.8} />
+          </m.button>
+        )}
         {isComplete && onCompare && (
           <m.button
             onClick={() => onCompare(job)}

@@ -19,6 +19,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { CapabilityBadge } from "@/components/CapabilityBadge";
+import { ConfirmProvider } from "@/components/ConfirmProvider";
 import { UpdateBanner } from "@/components/UpdateBanner";
 import { useAuth } from "@/hooks/useAuth";
 import { useGlobalShortcuts } from "@/hooks/useGlobalShortcuts";
@@ -241,24 +242,26 @@ function AuthenticatedApp() {
 export default function App() {
   return (
     <LazyMotion features={domMax} strict>
-      <BrowserRouter>
-        <Suspense fallback={null}>
-          <Routes>
+      <ConfirmProvider>
+        <BrowserRouter>
+          <Suspense fallback={null}>
+            <Routes>
             {/* Routes publiques (hors RequireAuth) */}
             <Route path="/login" element={<LoginPage />} />
             <Route path="/auth/callback" element={<AuthCallbackPage />} />
             {/* Reste de l'app protégé par auth */}
-            <Route
-              path="/*"
-              element={
-                <RequireAuth>
-                  <AuthenticatedApp />
-                </RequireAuth>
-              }
-            />
-          </Routes>
-        </Suspense>
-      </BrowserRouter>
+              <Route
+                path="/*"
+                element={
+                  <RequireAuth>
+                    <AuthenticatedApp />
+                  </RequireAuth>
+                }
+              />
+            </Routes>
+          </Suspense>
+        </BrowserRouter>
+      </ConfirmProvider>
     </LazyMotion>
   );
 }

@@ -26,6 +26,7 @@ export function UpscalePage() {
     updateJobProgress,
     updateJobCompleted,
     updateJobFailed,
+    cancelJob,
     removeJob,
   } = useJobStore();
 
@@ -319,7 +320,7 @@ export function UpscalePage() {
                       delay: i * 0.06,
                     }}
                   >
-                    <JobCard job={job} onCancel={(j) => void removeJob(j.id)} />
+                    <JobCard job={job} onCancel={(j) => void cancelJob(j.id)} />
                   </m.div>
                 ))}
               </div>
@@ -359,6 +360,7 @@ export function UpscalePage() {
                       void downloadFile(getDownloadUrl(job.id), filename);
                     }}
                     onCompare={() => setCompareJob(job)}
+                    onDelete={(j) => void removeJob(j.id)}
                   />
                 </m.div>
               ))}

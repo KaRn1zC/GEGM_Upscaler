@@ -138,7 +138,22 @@ export async function getJob(jobId: string): Promise<JobResponse> {
   return handleResponse<JobResponse>(res);
 }
 
+/** Annule un job actif (pending/queued/processing). Le job reste listé,
+ *  son statut passe à ``cancelled`` — il devient alors supprimable. */
 export async function cancelJob(jobId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/jobs/${jobId}/cancel`, {
+    method: "POST",
+    headers: await headers(),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`HTTP ${res.status}: ${body}`);
+  }
+}
+
+/** Supprime définitivement un job terminé : fichiers (input + output) du
+ *  storage + ligne en base. Réservé aux jobs terminés (409 sinon). */
+export async function deleteJob(jobId: string): Promise<void> {
   const res = await fetch(`${API_BASE}/jobs/${jobId}`, {
     method: "DELETE",
     headers: await headers(),
@@ -147,6 +162,18 @@ export async function cancelJob(jobId: string): Promise<void> {
     const body = await res.text();
     throw new Error(`HTTP ${res.status}: ${body}`);
   }
+}
+
+/** Supprime en lot les jobs terminés parmi ``jobIds`` (nettoyage de masse).
+ *  Retourne le nombre réellement supprimé (les actifs/inconnus sont ignorés). */
+export async function bulkDeleteJobs(jobIds: string[]): Promise<number> {
+  const res = await fetch(`${API_BASE}/jobs/bulk-delete`, {
+    method: "POST",
+    headers: await headers(),
+    body: JSON.stringify({ job_ids: jobIds }),
+  });
+  const data = await handleResponse<{ deleted: number }>(res);
+  return data.deleted;
 }
 
 // ── URLs authentifiées (pour <img>, <a download>, EventSource) ─────────

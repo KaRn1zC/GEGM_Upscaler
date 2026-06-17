@@ -1,14 +1,31 @@
 import { m } from "motion/react";
 import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
-import { X, ZoomIn, ZoomOut, RotateCcw } from "lucide-react";
+import { X, ZoomIn, ZoomOut, RotateCcw, Trash2 } from "lucide-react";
+import { useConfirm } from "@/hooks/useConfirm";
 
 interface ZoomViewerProps {
   imageUrl: string;
   title?: string;
   onClose?: () => void;
+  /** Suppression définitive de l'image inspectée (confirmation demandée ici).
+   *  À charge de l'appelant de fermer le viewer ensuite. */
+  onDelete?: () => void;
 }
 
-export function ZoomViewer({ imageUrl, title, onClose }: ZoomViewerProps) {
+export function ZoomViewer({ imageUrl, title, onClose, onDelete }: ZoomViewerProps) {
+  const confirm = useConfirm();
+
+  const handleDelete = async () => {
+    if (!onDelete) return;
+    const ok = await confirm({
+      title: "Supprimer ce résultat ?",
+      description:
+        "L'image source et le résultat seront définitivement supprimés du stockage. Cette action est irréversible.",
+      confirmLabel: "Supprimer",
+    });
+    if (ok) onDelete();
+  };
+
   return (
     <m.div
       initial={{ opacity: 0, scale: 0.97 }}
@@ -67,20 +84,31 @@ export function ZoomViewer({ imageUrl, title, onClose }: ZoomViewerProps) {
               >
                 <RotateCcw className="w-3.5 h-3.5" strokeWidth={2} />
               </m.button>
+              {(onDelete || onClose) && <div className="w-px h-4 bg-white/20 mx-1" />}
+              {onDelete && (
+                <m.button
+                  onClick={() => void handleDelete()}
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
+                  transition={{ type: "spring", stiffness: 400, damping: 25 }}
+                  className="p-1.5 rounded-md text-white/80 hover:text-white hover:bg-destructive/80 transition-colors"
+                  title="Supprimer"
+                  aria-label="Supprimer le résultat"
+                >
+                  <Trash2 className="w-3.5 h-3.5" strokeWidth={2} />
+                </m.button>
+              )}
               {onClose && (
-                <>
-                  <div className="w-px h-4 bg-white/20 mx-1" />
-                  <m.button
-                    onClick={onClose}
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.9 }}
-                    transition={{ type: "spring", stiffness: 400, damping: 25 }}
-                    className="p-1.5 rounded-md text-white/80 hover:text-white hover:bg-destructive/80 transition-colors"
-                    aria-label="Fermer le viewer"
-                  >
-                    <X className="w-3.5 h-3.5" strokeWidth={2} />
-                  </m.button>
-                </>
+                <m.button
+                  onClick={onClose}
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
+                  transition={{ type: "spring", stiffness: 400, damping: 25 }}
+                  className="p-1.5 rounded-md text-white/80 hover:text-white hover:bg-white/10 transition-colors"
+                  aria-label="Fermer le viewer"
+                >
+                  <X className="w-3.5 h-3.5" strokeWidth={2} />
+                </m.button>
               )}
             </m.div>
 

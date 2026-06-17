@@ -1,6 +1,13 @@
 import { create } from "zustand";
 import type { JobResponse } from "@/lib/api";
-import { cancelJob, createJob, listJobs, uploadImage } from "@/lib/api";
+import {
+  bulkDeleteJobs,
+  cancelJob,
+  createJob,
+  deleteJob,
+  listJobs,
+  uploadImage,
+} from "@/lib/api";
 import type { ScaleFactor } from "@/lib/constants";
 
 export interface BatchItemResult {
@@ -30,7 +37,9 @@ interface JobStore {
   updateJobProgress: (jobId: string, progress: number, status: string) => void;
   updateJobCompleted: (jobId: string, outputKey: string) => void;
   updateJobFailed: (jobId: string, error: string) => void;
+  cancelJob: (jobId: string) => Promise<void>;
   removeJob: (jobId: string) => Promise<void>;
+  removeJobs: (jobIds: string[]) => Promise<number>;
 }
 
 export const useJobStore = create<JobStore>((set) => ({
@@ -127,15 +136,49 @@ export const useJobStore = create<JobStore>((set) => ({
     }));
   },
 
-  removeJob: async (jobId) => {
+  cancelJob: async (jobId) => {
     try {
       await cancelJob(jobId);
+      // Le job reste listé, passe en `cancelled` (il devient supprimable).
+      set((s) => ({
+        jobs: s.jobs.map((j) =>
+          j.id === jobId ? { ...j, status: "cancelled" } : j,
+        ),
+      }));
+    } catch (err) {
+      console.error(`[useJobStore] Échec annulation job ${jobId}:`, err);
+      throw err;
+    }
+  },
+
+  removeJob: async (jobId) => {
+    try {
+      // Suppression réelle : fichiers (input + output) + ligne DB.
+      await deleteJob(jobId);
       set((s) => ({ jobs: s.jobs.filter((j) => j.id !== jobId) }));
     } catch (err) {
-      // On log l'erreur plutôt que de la swaller silencieusement : si le
-      // backend refuse l'annulation (409 sur un job déjà terminé), l'UI
-      // affichait un clic sans effet, inexplicable côté utilisateur.
-      console.error(`[useJobStore] Échec annulation job ${jobId}:`, err);
+      console.error(`[useJobStore] Échec suppression job ${jobId}:`, err);
+      throw err;
+    }
+  },
+
+  removeJobs: async (jobIds) => {
+    try {
+      const deleted = await bulkDeleteJobs(jobIds);
+      // Le backend ignore les actifs/inconnus ; on retire de la liste les
+      // ids demandés qui sont effectivement supprimables (terminés). Comme
+      // l'API ne renvoie que le compte, on filtre sur le statut terminal
+      // localement pour rester cohérent avec ce que le backend a supprimé.
+      const terminal = new Set(["completed", "failed", "cancelled"]);
+      const requested = new Set(jobIds);
+      set((s) => ({
+        jobs: s.jobs.filter(
+          (j) => !(requested.has(j.id) && terminal.has(j.status)),
+        ),
+      }));
+      return deleted;
+    } catch (err) {
+      console.error(`[useJobStore] Échec suppression groupée:`, err);
       throw err;
     }
   },

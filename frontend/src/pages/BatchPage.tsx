@@ -11,7 +11,7 @@ import type { ScaleFactor } from "@/lib/constants";
 const EASE_OUT_EXPO = [0.22, 1, 0.36, 1] as const;
 
 export function BatchPage() {
-  const { jobs, fetchJobs, submitBatch, removeJob } = useJobStore();
+  const { jobs, fetchJobs, submitBatch, cancelJob, removeJob } = useJobStore();
   const { refresh: refreshResources } = useSystemResources();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [lastBatchErrors, setLastBatchErrors] = useState<string[]>([]);
@@ -180,7 +180,8 @@ export function BatchPage() {
                   >
                     <JobCard
                       job={job}
-                      onCancel={(j) => void removeJob(j.id)}
+                      onCancel={(j) => void cancelJob(j.id)}
+                      onDelete={(j) => void removeJob(j.id)}
                     />
                   </m.div>
                 ))}
