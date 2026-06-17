@@ -101,10 +101,16 @@ MAX_INPUT_DOWNLOAD_BYTES = int(os.environ.get("MAX_INPUT_DOWNLOAD_BYTES", str(2 
 # de précision était observé sur un modèle.
 AUTOCAST_FP16 = os.environ.get("AUTOCAST_FP16", "true").lower() in ("1", "true", "yes")
 
+# Modèles numériquement stables en fp16. DRCT-L l'est (validé en prod) ;
+# HAT-L NON : ses couches d'attention overflowent en demi-précision et
+# produisent des NaN → cast uint8 invalide → image noire (observé le
+# 2026-06-17 sur le x2). HAT-L tourne donc toujours en fp32.
+_FP16_SAFE_MODELS: set[str] = {"drct-l"}
 
-def _autocast_ctx() -> contextlib.AbstractContextManager[Any]:
-    """Contexte autocast fp16 si activé et sur CUDA, no-op sinon."""
-    if AUTOCAST_FP16 and DEVICE == "cuda":
+
+def _autocast_ctx(model_name: str) -> contextlib.AbstractContextManager[Any]:
+    """Contexte autocast fp16 si activé, sur CUDA, et modèle fp16-safe ; sinon no-op."""
+    if AUTOCAST_FP16 and DEVICE == "cuda" and model_name in _FP16_SAFE_MODELS:
         return torch.autocast("cuda", dtype=torch.float16)
     return contextlib.nullcontext()
 
@@ -333,7 +339,7 @@ def load_model(model_name: str, scale_factor: int) -> torch.nn.Module:
         t0 = time.time()
         # Même contexte autocast que l'inférence réelle : les kernels JIT
         # compilés ici doivent être ceux du dtype effectivement utilisé.
-        with torch.no_grad(), _autocast_ctx():
+        with torch.no_grad(), _autocast_ctx(model_name):
             dummy = torch.randn(1, 3, TILE_SIZE, TILE_SIZE, device=DEVICE)
             _ = model(dummy)
             torch.cuda.synchronize()
@@ -402,6 +408,10 @@ def _pad_image_to_tile_grid(
 def _postprocess_tile(tensor: torch.Tensor) -> np.ndarray:
     """Convertit un tenseur NCHW (float32 ou fp16 autocast) en HWC uint8."""
     out = tensor.squeeze(0).permute(1, 2, 0).clamp(0, 1).float().cpu().numpy()
+    # Filet anti-NaN : un NaN survit au clamp et casse le cast uint8
+    # (« invalid value encountered in cast » → pixels noirs). On le neutralise
+    # pour ne jamais produire de garbage, même si un modèle dérape.
+    out = np.nan_to_num(out, nan=0.0, posinf=1.0, neginf=0.0)
     return (out * 255.0).astype(np.uint8)
 
 
@@ -522,7 +532,7 @@ def run_inference(
     weights = np.zeros((out_h, out_w), dtype=np.float32)
 
     inference_start = time.time()
-    with torch.no_grad(), _autocast_ctx():
+    with torch.no_grad(), _autocast_ctx(model_name):
         for idx, (tx, ty, tw, th) in enumerate(grid, start=1):
             tile_np = img_padded[ty : ty + th, tx : tx + tw]
             tile_tensor = _preprocess_tile(tile_np)
