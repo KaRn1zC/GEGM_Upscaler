@@ -120,4 +120,21 @@ describe("GalleryPage", () => {
     expect(screen.getByTitle("Zoom arrière")).toBeInTheDocument();
     expect(screen.getByTitle("Réinitialiser")).toBeInTheDocument();
   });
+
+  it("should open the compare slider when a gallery tile is compared", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.listJobs).mockResolvedValue([makeJob({ id: "cmp1" })]);
+    render(<GalleryPage />);
+
+    const compareBtn = await screen.findByTitle("Comparer avant/après");
+    await act(async () => {
+      await user.click(compareBtn);
+    });
+
+    // Le CompareSlider rend ce texte d'aide + les labels — signal fiable
+    // que le comparateur est ouvert.
+    expect(await screen.findByText("Glisser pour comparer")).toBeInTheDocument();
+    expect(screen.getByText("Original")).toBeInTheDocument();
+    expect(screen.getByText("Upscalé")).toBeInTheDocument();
+  });
 });

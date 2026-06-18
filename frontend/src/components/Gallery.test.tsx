@@ -72,6 +72,22 @@ describe("Gallery", () => {
     expect(screen.queryByTitle("Inspecter")).not.toBeInTheDocument();
   });
 
+  it("should call onCompare when compare button is clicked", async () => {
+    const user = userEvent.setup();
+    const onCompare = vi.fn();
+    const job = makeJob({ id: "job-compare" });
+
+    render(<Gallery jobs={[job]} onCompare={onCompare} />);
+
+    await user.click(screen.getByTitle("Comparer avant/après"));
+    expect(onCompare).toHaveBeenCalledWith(job);
+  });
+
+  it("should not render compare button when onCompare is not provided", () => {
+    render(<Gallery jobs={[makeJob()]} />);
+    expect(screen.queryByTitle("Comparer avant/après")).not.toBeInTheDocument();
+  });
+
   it("should always render the download button", () => {
     render(<Gallery jobs={[makeJob()]} />);
     expect(screen.getByTitle("Télécharger")).toBeInTheDocument();

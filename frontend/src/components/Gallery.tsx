@@ -1,5 +1,5 @@
 import { m } from "motion/react";
-import { CheckCircle2, Circle, Download, Trash2, ZoomIn } from "lucide-react";
+import { CheckCircle2, Circle, Columns2, Download, Trash2, ZoomIn } from "lucide-react";
 import { getDownloadUrl, type JobResponse } from "@/lib/api";
 import { downloadFile } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
@@ -8,6 +8,8 @@ import { useConfirm } from "@/hooks/useConfirm";
 interface GalleryProps {
   jobs: JobResponse[];
   onZoom?: (job: JobResponse) => void;
+  /** Ouvre le comparateur avant/après (slider) sur ce job. */
+  onCompare?: (job: JobResponse) => void;
   /** Suppression définitive d'un résultat (confirmation demandée ici). */
   onDelete?: (job: JobResponse) => void;
   /** Mode sélection multiple : le clic sur une vignette coche au lieu de zoomer. */
@@ -19,6 +21,7 @@ interface GalleryProps {
 export function Gallery({
   jobs,
   onZoom,
+  onCompare,
   onDelete,
   selectMode = false,
   selectedIds,
@@ -126,6 +129,18 @@ export function Gallery({
                   title="Inspecter"
                 >
                   <ZoomIn className="w-3.5 h-3.5" strokeWidth={2} />
+                </m.button>
+              )}
+              {onCompare && (
+                <m.button
+                  onClick={() => onCompare(job)}
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
+                  transition={{ type: "spring", stiffness: 400, damping: 25 }}
+                  className="p-1.5 rounded-lg bg-black/70 text-white hover:bg-primary hover:text-primary-foreground backdrop-blur-sm transition-colors"
+                  title="Comparer avant/après"
+                >
+                  <Columns2 className="w-3.5 h-3.5" strokeWidth={2} />
                 </m.button>
               )}
               <m.button

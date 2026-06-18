@@ -3,10 +3,11 @@ import { m, AnimatePresence } from "motion/react";
 import { ImageIcon } from "lucide-react";
 import { Gallery } from "@/components/Gallery";
 import { ZoomViewer } from "@/components/ZoomViewer";
+import { CompareSlider } from "@/components/CompareSlider";
 import { SelectionBar } from "@/components/SelectionBar";
 import { useConfirm } from "@/hooks/useConfirm";
 import { useJobStore } from "@/stores/useJobStore";
-import { getDownloadUrl, type JobResponse } from "@/lib/api";
+import { getDownloadUrl, getUploadUrl, type JobResponse } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 const EASE_OUT_EXPO = [0.22, 1, 0.36, 1] as const;
@@ -15,8 +16,20 @@ export function GalleryPage() {
   const { jobs, isLoading, fetchJobs, removeJob, removeJobs } = useJobStore();
   const confirm = useConfirm();
   const [zoomJob, setZoomJob] = useState<JobResponse | null>(null);
+  const [compareJob, setCompareJob] = useState<JobResponse | null>(null);
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  // Le zoom et la comparaison sont deux vues mutuellement exclusives : ouvrir
+  // l'une ferme l'autre.
+  const openZoom = (job: JobResponse) => {
+    setCompareJob(null);
+    setZoomJob(job);
+  };
+  const openCompare = (job: JobResponse) => {
+    setZoomJob(null);
+    setCompareJob(job);
+  };
 
   useEffect(() => {
     void fetchJobs();
@@ -81,7 +94,7 @@ export function GalleryPage() {
             </p>
           </div>
 
-          {completedJobs.length > 0 && !zoomJob && (
+          {completedJobs.length > 0 && !zoomJob && !compareJob && (
             <button
               type="button"
               onClick={() => (selectMode ? exitSelection() : setSelectMode(true))}
@@ -122,6 +135,26 @@ export function GalleryPage() {
           )}
         </AnimatePresence>
 
+        {/* Comparateur avant/après (slider) */}
+        <AnimatePresence mode="wait">
+          {compareJob && (
+            <m.div
+              key={`compare-${compareJob.id}`}
+              initial={{ opacity: 0, scale: 0.96, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: -20 }}
+              transition={{ type: "spring", stiffness: 260, damping: 26 }}
+              className="mb-10"
+            >
+              <CompareSlider
+                beforeSrc={getUploadUrl(compareJob.input_key)}
+                afterSrc={getDownloadUrl(compareJob.id)}
+                onClose={() => setCompareJob(null)}
+              />
+            </m.div>
+          )}
+        </AnimatePresence>
+
         {isLoading && (
           <m.div
             initial={{ opacity: 0 }}
@@ -154,7 +187,8 @@ export function GalleryPage() {
         {!isLoading && completedJobs.length > 0 && (
           <Gallery
             jobs={completedJobs}
-            onZoom={selectMode ? undefined : setZoomJob}
+            onZoom={selectMode ? undefined : openZoom}
+            onCompare={selectMode ? undefined : openCompare}
             onDelete={(j) => void removeJob(j.id)}
             selectMode={selectMode}
             selectedIds={selected}
