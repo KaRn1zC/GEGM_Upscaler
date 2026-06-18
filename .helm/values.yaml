@@ -143,13 +143,15 @@ config:
   FRONTEND_DIST: "/app/frontend/dist"
 
   # OpenTelemetry — traces distribuées FastAPI → Celery → RunPod.
-  # Vide → OTel désactivé (no-op, pas d'overhead). En prod GEGM, pointer
-  # sur l'OTel collector interne. Service name est surchargé côté worker
-  # (auto "gegm-upscaler-worker") pour distinguer les deux dans les
-  # traces agrégées.
+  # Vide → OTel désactivé. Cible = l'OTel collector interne (confirmé infra
+  # 2026-06-18, sans TLS → INSECURE=true). Service name surchargé côté worker
+  # (auto "gegm-upscaler-worker") pour distinguer les deux dans les traces.
+  # ⚠ Hôte = nom de service conventionnel d'un OTel Collector ; à confirmer
+  # par l'infra (`kubectl -n monitoring get svc | grep -i otel`) — si le nom
+  # diffère, c'est cette seule ligne à ajuster.
   OTEL_SERVICE_NAME: "gegm-upscaler-api"
-  OTEL_EXPORTER_OTLP_ENDPOINT: ""  # ex: http://otel-collector.monitoring:4317
-  OTEL_EXPORTER_OTLP_INSECURE: "true"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.monitoring.svc.cluster.local:4317"
+  OTEL_EXPORTER_OTLP_INSECURE: "true"  # collector intra-cluster, plaintext gRPC
   OTEL_TRACES_SAMPLER_RATIO: "0.1"
 
 # ─── Database (CNPG Postgres) ──────────────────────────────────────────────
