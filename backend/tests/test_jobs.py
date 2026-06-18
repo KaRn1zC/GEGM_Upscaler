@@ -216,9 +216,7 @@ async def test_should_bulk_delete_terminal_jobs_only(
 async def test_should_warmup_noop_without_cloud(client: AsyncClient) -> None:
     """Sans backend cloud disponible, /api/warmup → warmed=false (no-op)."""
     with patch("app.core.gpu.factory.build_cloud_gpu_backend", return_value=None):
-        resp = await client.post(
-            "/api/warmup", json={"scale_factor": 4}, headers=AUTH_HEADERS
-        )
+        resp = await client.post("/api/warmup", json={"scale_factor": 4}, headers=AUTH_HEADERS)
     assert resp.status_code == 200
     assert resp.json() == {"warmed": False}
 
@@ -237,12 +235,8 @@ async def test_should_warmup_send_ping_with_cloud(client: AsyncClient) -> None:
     fake_backend.warmup = AsyncMock()
     fake_backend.close = AsyncMock()
 
-    with patch(
-        "app.core.gpu.factory.build_cloud_gpu_backend", return_value=fake_backend
-    ):
-        resp = await client.post(
-            "/api/warmup", json={"scale_factor": 2}, headers=AUTH_HEADERS
-        )
+    with patch("app.core.gpu.factory.build_cloud_gpu_backend", return_value=fake_backend):
+        resp = await client.post("/api/warmup", json={"scale_factor": 2}, headers=AUTH_HEADERS)
 
     assert resp.status_code == 200
     assert resp.json() == {"warmed": True}

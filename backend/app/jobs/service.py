@@ -70,9 +70,7 @@ async def warmup_gpu(scale_factor: int) -> bool:
     if backend is None:
         return False
     try:
-        await backend.warmup(
-            scale_factor=scale_factor, model_name=_model_for_scale(scale_factor)
-        )
+        await backend.warmup(scale_factor=scale_factor, model_name=_model_for_scale(scale_factor))
     finally:
         await backend.close()
     return True

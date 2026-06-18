@@ -205,16 +205,12 @@ class RunPodBackend(GPUBackend):
         if model_name:
             inputs["model_name"] = model_name
         try:
-            response = await self._client.post(
-                f"{self._base_url}/run", json={"input": inputs}
-            )
+            response = await self._client.post(f"{self._base_url}/run", json={"input": inputs})
         except httpx.HTTPError as exc:
             logger.warning("Pré-warm RunPod échoué (réseau) : {err}", err=str(exc))
             return
         if response.status_code != 200:
-            logger.warning(
-                "Pré-warm RunPod refusé — HTTP {status}", status=response.status_code
-            )
+            logger.warning("Pré-warm RunPod refusé — HTTP {status}", status=response.status_code)
             return
         logger.info(
             "Pré-warm RunPod envoyé — scale=x{sf} model={m}",
